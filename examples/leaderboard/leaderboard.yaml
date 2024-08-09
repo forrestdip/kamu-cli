@@ -13,7 +13,7 @@ content:
         engine: risingwave
         queries:
           - alias: leaderboard
-            # Note we are using explicit `crate materialized view` statement below
+            # Note we are using explicit `create materialized view` statement below
             # because RW does not currently support Top-N queries directly on sinks.
             #
             # Note `partition by 1` is currently required by RW engine
