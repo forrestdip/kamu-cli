@@ -1,0 +1,28 @@
+kind: DatasetSnapshot
+version: 1
+content:
+  name: spatial.fires
+  kind: Root
+  metadata:
+    - kind: SetPollingSource
+      fetch:
+        kind: FilesGlob
+        path: "PROT_HISTORICAL_FIRE_POLYS_SP.zip"
+      read:
+        kind: EsriShapefile
+        subPath: "PROT_HISTORICAL_FIRE_POLYS_SP/H_FIRE_PLY_polygon.shp"
+      preprocess:
+        kind: Sql
+        engine: datafusion
+        query: |
+          select 
+            cast(OBJECTID as int) as objectid,
+            cast(AREA_SQM as double) as area_sqm,
+            FIRE_DATE,  -- keep as is for now
+            FIRE_CAUSE as fire_cause,
+            geometry
+          from input
+      merge:
+        kind: Ledger
+        primaryKey:
+          - objectid
