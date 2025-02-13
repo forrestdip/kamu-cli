@@ -10,11 +10,9 @@
 use std::assert_matches::assert_matches;
 use std::sync::Arc;
 
-use kamu::testing::MockDatasetActionAuthorizer;
+use kamu::testing::{BaseUseCaseHarness, BaseUseCaseHarnessOptions, MockDatasetActionAuthorizer};
 use kamu::*;
 use kamu_core::*;
-
-use super::{BaseUseCaseHarness, BaseUseCaseHarnessOptions};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -176,9 +174,9 @@ async fn test_verify_mixed_authorization_outcome() {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[oop::extend(BaseUseCaseHarness, base_harness)]
+#[oop::extend(BaseUseCaseHarness, base_use_case_harness)]
 struct VerifyUseCaseHarness {
-    base_harness: BaseUseCaseHarness,
+    base_use_case_harness: BaseUseCaseHarness,
     use_case: Arc<dyn VerifyDatasetUseCase>,
 }
 
@@ -187,13 +185,13 @@ impl VerifyUseCaseHarness {
         mock_dataset_action_authorizer: MockDatasetActionAuthorizer,
         mock_did_generator: MockDidGenerator,
     ) -> Self {
-        let base_harness = BaseUseCaseHarness::new(
+        let base_use_case_harness = BaseUseCaseHarness::new(
             BaseUseCaseHarnessOptions::new()
-                .with_authorizer(mock_dataset_action_authorizer)
+                .with_maybe_authorizer(Some(mock_dataset_action_authorizer))
                 .with_maybe_mock_did_generator(Some(mock_did_generator)),
         );
 
-        let catalog = dill::CatalogBuilder::new_chained(base_harness.catalog())
+        let catalog = dill::CatalogBuilder::new_chained(base_use_case_harness.catalog())
             .add::<VerifyDatasetUseCaseImpl>()
             .add::<VerificationServiceImpl>()
             .add::<TransformRequestPlannerImpl>()
@@ -204,7 +202,7 @@ impl VerifyUseCaseHarness {
         let use_case = catalog.get_one().unwrap();
 
         Self {
-            base_harness,
+            base_use_case_harness,
             use_case,
         }
     }

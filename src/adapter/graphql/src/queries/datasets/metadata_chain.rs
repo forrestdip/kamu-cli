@@ -44,7 +44,7 @@ impl MetadataChain {
     /// Returns all named metadata block references
     #[tracing::instrument(level = "info", skip_all)]
     async fn refs(&self, ctx: &Context<'_>) -> Result<Vec<BlockRef>> {
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle)?;
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
         Ok(vec![BlockRef {
             name: "head".to_owned(),
             block_hash: resolved_dataset
@@ -63,15 +63,19 @@ impl MetadataChain {
         ctx: &Context<'_>,
         hash: Multihash,
     ) -> Result<Option<MetadataBlockExtended>> {
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle)?;
-        let block = resolved_dataset
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
+        let block_maybe = resolved_dataset
             .as_metadata_chain()
             .try_get_block(&hash)
             .await?;
         let account = Account::from_dataset_alias(ctx, &self.dataset_handle.alias)
             .await?
             .expect("Account must exist");
-        Ok(block.map(|b| MetadataBlockExtended::new(hash, b, account)))
+        Ok(if let Some(block) = block_maybe {
+            Some(MetadataBlockExtended::new(ctx, hash, block, account).await?)
+        } else {
+            None
+        })
     }
 
     /// Returns a metadata block corresponding to the specified hash and encoded
@@ -85,7 +89,7 @@ impl MetadataChain {
     ) -> Result<Option<String>> {
         use odf::metadata::serde::MetadataBlockSerializer;
 
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle)?;
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
         match resolved_dataset
             .as_metadata_chain()
             .try_get_block(&hash)
@@ -94,8 +98,9 @@ impl MetadataChain {
             None => Ok(None),
             Some(block) => match format {
                 MetadataManifestFormat::Yaml => {
+                    let block_content = MetadataBlock::with_extended_aliases(ctx, block).await?;
                     let ser = odf::metadata::serde::yaml::YamlMetadataBlockSerializer;
-                    let buffer = ser.write_manifest(&block).int_err()?;
+                    let buffer = ser.write_manifest(&block_content).int_err()?;
                     let content = std::str::from_utf8(&buffer).int_err()?;
                     Ok(Some(content.to_string()))
                 }
@@ -113,7 +118,7 @@ impl MetadataChain {
         page: Option<usize>,
         per_page: Option<usize>,
     ) -> Result<MetadataBlockConnection> {
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle)?;
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
 
         let page = page.unwrap_or(0);
         let per_page = per_page.unwrap_or(Self::DEFAULT_BLOCKS_PER_PAGE);
@@ -134,7 +139,7 @@ impl MetadataChain {
             let account = Account::from_dataset_alias(ctx, &self.dataset_handle.alias)
                 .await?
                 .expect("Account must exist");
-            let block = MetadataBlockExtended::new(hash, block, account);
+            let block = MetadataBlockExtended::new(ctx, hash, block, account).await?;
             nodes.push(block);
         }
 

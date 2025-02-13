@@ -7,6 +7,7 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0.
 
+use std::assert_matches::assert_matches;
 use std::str::FromStr;
 
 use chrono::DateTime;
@@ -99,7 +100,7 @@ pub async fn test_simple_push_to_s3_smart_pull_mt_mt(kamu: KamuCliPuppet) {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-test_smart_transfer_protocol_permutations!(test_smart_push_to_registered_repo_smart_pull);
+test_smart_transfer_protocol_permutations!(test_smart_push_pull_with_registered_repo_smart_pull);
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Implementations
@@ -116,7 +117,7 @@ async fn test_smart_push_smart_pull_sequence(
     );
     let kamu_api_server_dataset_endpoint = kamu_api_server_client
         .dataset()
-        .get_endpoint(&dataset_alias);
+        .get_odf_endpoint(&dataset_alias);
 
     // 1. Grub a token
     let token = kamu_api_server_client.auth().login_as_e2e_user().await;
@@ -163,7 +164,7 @@ async fn test_smart_push_smart_pull_sequence(
                     "public",
                 ],
                 None,
-                Some(["1 dataset(s) pushed"]),
+                Some([r#"1 dataset\(s\) pushed"#]),
             )
             .await;
 
@@ -190,7 +191,7 @@ async fn test_smart_push_smart_pull_sequence(
                     kamu_api_server_dataset_endpoint.as_str(),
                 ],
                 None,
-                Some(["Failed to push 1 dataset(s)"]),
+                Some([r#"Failed to push 1 dataset\(s\)"#]),
             )
             .await;
 
@@ -205,7 +206,7 @@ async fn test_smart_push_smart_pull_sequence(
                     "--force",
                 ],
                 None,
-                Some(["1 dataset(s) pushed"]),
+                Some([r#"1 dataset\(s\) pushed"#]),
             )
             .await;
     }
@@ -224,7 +225,7 @@ async fn test_smart_push_smart_pull_sequence(
                     "--no-alias",
                 ],
                 None,
-                Some(["1 dataset(s) updated"]),
+                Some([r#"1 dataset\(s\) updated"#]),
             )
             .await;
 
@@ -242,7 +243,7 @@ async fn test_smart_push_smart_pull_sequence(
             .assert_failure_command_execution(
                 ["pull", kamu_api_server_dataset_endpoint.as_str()],
                 None,
-                Some(["Failed to update 1 dataset(s)"]),
+                Some([r#"Failed to update 1 dataset\(s\)"#]),
             )
             .await;
 
@@ -251,7 +252,7 @@ async fn test_smart_push_smart_pull_sequence(
             .assert_success_command_execution(
                 ["pull", kamu_api_server_dataset_endpoint.as_str(), "--force"],
                 None,
-                Some(["1 dataset(s) updated"]),
+                Some([r#"1 dataset\(s\) updated"#]),
             )
             .await;
     }
@@ -270,7 +271,7 @@ async fn test_smart_push_force_smart_pull_force(
     );
     let kamu_api_server_dataset_endpoint = kamu_api_server_client
         .dataset()
-        .get_endpoint(&dataset_alias);
+        .get_odf_endpoint(&dataset_alias);
 
     // 1. Grub a token
     let token = kamu_api_server_client.auth().login_as_e2e_user().await;
@@ -317,7 +318,7 @@ async fn test_smart_push_force_smart_pull_force(
                     "public",
                 ],
                 None,
-                Some(["1 dataset(s) pushed"]),
+                Some([r#"1 dataset\(s\) pushed"#]),
             )
             .await;
 
@@ -344,7 +345,7 @@ async fn test_smart_push_force_smart_pull_force(
                     kamu_api_server_dataset_endpoint.as_str(),
                 ],
                 None,
-                Some(["Failed to push 1 dataset(s)"]),
+                Some([r#"Failed to push 1 dataset\(s\)"#]),
             )
             .await;
 
@@ -359,7 +360,7 @@ async fn test_smart_push_force_smart_pull_force(
                     "--force",
                 ],
                 None,
-                Some(["1 dataset(s) pushed"]),
+                Some([r#"1 dataset\(s\) pushed"#]),
             )
             .await;
     }
@@ -378,7 +379,7 @@ async fn test_smart_push_force_smart_pull_force(
                     "--no-alias",
                 ],
                 None,
-                Some(["1 dataset(s) updated"]),
+                Some([r#"1 dataset\(s\) updated"#]),
             )
             .await;
 
@@ -396,7 +397,7 @@ async fn test_smart_push_force_smart_pull_force(
             .assert_failure_command_execution(
                 ["pull", kamu_api_server_dataset_endpoint.as_str()],
                 None,
-                Some(["Failed to update 1 dataset(s)"]),
+                Some([r#"Failed to update 1 dataset\(s\)"#]),
             )
             .await;
 
@@ -405,7 +406,7 @@ async fn test_smart_push_force_smart_pull_force(
             .assert_success_command_execution(
                 ["pull", kamu_api_server_dataset_endpoint.as_str(), "--force"],
                 None,
-                Some(["1 dataset(s) updated"]),
+                Some([r#"1 dataset\(s\) updated"#]),
             )
             .await;
     }
@@ -424,7 +425,7 @@ async fn test_smart_push_no_alias_smart_pull_no_alias(
     );
     let kamu_api_server_dataset_endpoint = kamu_api_server_client
         .dataset()
-        .get_endpoint(&dataset_alias);
+        .get_odf_endpoint(&dataset_alias);
 
     // 1. Grub a token
     let token = kamu_api_server_client.auth().login_as_e2e_user().await;
@@ -472,7 +473,7 @@ async fn test_smart_push_no_alias_smart_pull_no_alias(
                     "public",
                 ],
                 None,
-                Some(["1 dataset(s) pushed"]),
+                Some([r#"1 dataset\(s\) pushed"#]),
             )
             .await;
 
@@ -492,7 +493,7 @@ async fn test_smart_push_no_alias_smart_pull_no_alias(
                     kamu_api_server_dataset_endpoint.as_str(),
                 ],
                 None,
-                Some(["1 dataset(s) up-to-date"]),
+                Some([r#"1 dataset\(s\) up-to-date"#]),
             )
             .await;
 
@@ -533,7 +534,7 @@ async fn test_smart_push_no_alias_smart_pull_no_alias(
                     "--no-alias",
                 ],
                 None,
-                Some(["1 dataset(s) updated"]),
+                Some([r#"1 dataset\(s\) updated"#]),
             )
             .await;
 
@@ -554,7 +555,7 @@ async fn test_smart_push_no_alias_smart_pull_no_alias(
             .assert_success_command_execution(
                 ["pull", kamu_api_server_dataset_endpoint.as_str()],
                 None,
-                Some(["1 dataset(s) updated"]),
+                Some([r#"1 dataset\(s\) updated"#]),
             )
             .await;
 
@@ -594,7 +595,7 @@ async fn test_smart_pull_as(
     );
     let kamu_api_server_dataset_endpoint = kamu_api_server_client
         .dataset()
-        .get_endpoint(&dataset_alias);
+        .get_odf_endpoint(&dataset_alias);
 
     // 1. Grub a token
     kamu_api_server_client.auth().login_as_e2e_user().await;
@@ -618,7 +619,7 @@ async fn test_smart_pull_as(
                     new_dataset_name.as_str(),
                 ],
                 None,
-                Some(["1 dataset(s) updated"]),
+                Some([r#"1 dataset\(s\) updated"#]),
             )
             .await;
 
@@ -646,7 +647,7 @@ async fn test_smart_push_all_smart_pull_all(
     );
     let kamu_api_server_root_dataset_endpoint = kamu_api_server_client
         .dataset()
-        .get_endpoint(&root_dataset_alias);
+        .get_odf_endpoint(&root_dataset_alias);
 
     let derivative_dataset_alias = odf::DatasetAlias::new(
         Some(E2E_USER_ACCOUNT_NAME.clone()),
@@ -654,7 +655,7 @@ async fn test_smart_push_all_smart_pull_all(
     );
     let kamu_api_server_derivative_dataset_endpoint = kamu_api_server_client
         .dataset()
-        .get_endpoint(&derivative_dataset_alias);
+        .get_odf_endpoint(&derivative_dataset_alias);
 
     // 1. Grub a token
     let token = kamu_api_server_client.auth().login_as_e2e_user().await;
@@ -725,7 +726,7 @@ async fn test_smart_push_all_smart_pull_all(
                     "public",
                 ],
                 None,
-                Some(["1 dataset(s) pushed"]),
+                Some([r#"1 dataset\(s\) pushed"#]),
             )
             .await;
 
@@ -745,7 +746,7 @@ async fn test_smart_push_all_smart_pull_all(
                     "public",
                 ],
                 None,
-                Some(["1 dataset(s) pushed"]),
+                Some([r#"1 dataset\(s\) pushed"#]),
             )
             .await;
     }
@@ -760,7 +761,7 @@ async fn test_smart_push_all_smart_pull_all(
             .assert_success_command_execution(
                 ["pull", kamu_api_server_root_dataset_endpoint.as_str()],
                 None,
-                Some(["1 dataset(s) updated"]),
+                Some([r#"1 dataset\(s\) updated"#]),
             )
             .await;
 
@@ -768,7 +769,7 @@ async fn test_smart_push_all_smart_pull_all(
             .assert_success_command_execution(
                 ["pull", kamu_api_server_derivative_dataset_endpoint.as_str()],
                 None,
-                Some(["1 dataset(s) updated"]),
+                Some([r#"1 dataset\(s\) updated"#]),
             )
             .await;
 
@@ -848,7 +849,7 @@ async fn test_smart_push_all_smart_pull_all(
             .assert_success_command_execution(
                 ["pull", derivative_dataset_alias.dataset_name.as_str()],
                 None,
-                Some(["1 dataset(s) updated"]),
+                Some([r#"1 dataset\(s\) updated"#]),
             )
             .await;
 
@@ -861,7 +862,7 @@ async fn test_smart_push_all_smart_pull_all(
                     kamu_api_server_root_dataset_endpoint.as_str(),
                 ],
                 None,
-                Some(["1 dataset(s) pushed"]),
+                Some([r#"1 dataset\(s\) pushed"#]),
             )
             .await;
 
@@ -874,7 +875,7 @@ async fn test_smart_push_all_smart_pull_all(
                     kamu_api_server_derivative_dataset_endpoint.as_str(),
                 ],
                 None,
-                Some(["1 dataset(s) pushed"]),
+                Some([r#"1 dataset\(s\) pushed"#]),
             )
             .await;
 
@@ -883,7 +884,7 @@ async fn test_smart_push_all_smart_pull_all(
             .assert_success_command_execution(
                 ["pull", "--all"],
                 None,
-                Some(["2 dataset(s) updated"]),
+                Some([r#"2 dataset\(s\) updated"#]),
             )
             .await;
 
@@ -939,7 +940,7 @@ async fn test_smart_push_recursive_smart_pull_recursive(
     );
     let kamu_api_server_root_dataset_endpoint = kamu_api_server_client
         .dataset()
-        .get_endpoint(&root_dataset_alias);
+        .get_odf_endpoint(&root_dataset_alias);
 
     let derivative_dataset_alias = odf::DatasetAlias::new(
         Some(E2E_USER_ACCOUNT_NAME.clone()),
@@ -1011,7 +1012,7 @@ async fn test_smart_push_recursive_smart_pull_recursive(
                     "public",
                 ],
                 None,
-                Some(["1 dataset(s) pushed"]),
+                Some([r#"1 dataset\(s\) pushed"#]),
             )
             .await;
     }
@@ -1029,7 +1030,7 @@ async fn test_smart_push_recursive_smart_pull_recursive(
             .assert_success_command_execution(
                 ["pull", kamu_api_server_root_dataset_endpoint.as_str()],
                 None,
-                Some(["1 dataset(s) updated"]),
+                Some([r#"1 dataset\(s\) updated"#]),
             )
             .await;
 
@@ -1045,7 +1046,7 @@ async fn test_smart_push_recursive_smart_pull_recursive(
             .assert_success_command_execution(
                 ["pull", derivative_dataset_alias.dataset_name.as_str()],
                 None,
-                Some(["1 dataset(s) updated"]),
+                Some([r#"1 dataset\(s\) updated"#]),
             )
             .await;
 
@@ -1130,7 +1131,7 @@ async fn test_smart_push_recursive_smart_pull_recursive(
                     kamu_api_server_root_dataset_endpoint.as_str(),
                 ],
                 None,
-                Some(["1 dataset(s) pushed"]),
+                Some([r#"1 dataset\(s\) pushed"#]),
             )
             .await;
 
@@ -1143,7 +1144,7 @@ async fn test_smart_push_recursive_smart_pull_recursive(
                     "--recursive",
                 ],
                 None,
-                Some(["2 dataset(s) updated"]),
+                Some([r#"2 dataset\(s\) updated"#]),
             )
             .await;
 
@@ -1198,13 +1199,13 @@ async fn test_smart_push_visibility(
     );
     let kamu_api_server_dataset_endpoint = kamu_api_server_client
         .dataset()
-        .get_endpoint(&dataset_alias);
+        .get_odf_endpoint(&dataset_alias);
 
     // 1. Grub a token
     let token = kamu_api_server_client.auth().login_as_e2e_user().await;
 
     // 2. Pushing the dataset to the API server
-    {
+    let dataset_id = {
         let kamu_in_push_workspace =
             KamuCliPuppet::new_workspace_tmp(is_push_workspace_multi_tenant).await;
 
@@ -1244,12 +1245,22 @@ async fn test_smart_push_visibility(
                     "private",
                 ],
                 None,
-                Some(["1 dataset(s) pushed"]),
+                Some([r#"1 dataset\(s\) pushed"#]),
             )
             .await;
 
-        // TODO: Private Datasets: add visibility check
-    }
+        let mut datasets = kamu_in_push_workspace.list_datasets().await;
+        pretty_assertions::assert_eq!(1, datasets.len());
+        datasets.swap_remove(0).id
+    };
+
+    assert_matches!(
+        kamu_api_server_client
+            .dataset()
+            .get_visibility(&dataset_id)
+            .await,
+        Ok(odf::DatasetVisibility::Private)
+    );
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1282,7 +1293,7 @@ async fn test_simple_push_to_s3_smart_pull(
             dataset_url.as_str(),
         ],
         None,
-        Some(["1 dataset(s) pushed"]),
+        Some([r#"1 dataset\(s\) pushed"#]),
     )
     .await;
 
@@ -1294,7 +1305,7 @@ async fn test_simple_push_to_s3_smart_pull(
             .assert_success_command_execution(
                 ["pull", dataset_url.as_str()],
                 None,
-                Some(["1 dataset(s) updated"]),
+                Some([r#"1 dataset\(s\) updated"#]),
             )
             .await;
 
@@ -1328,7 +1339,7 @@ async fn test_simple_push_to_s3_smart_pull(
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-async fn test_smart_push_to_registered_repo_smart_pull(
+async fn test_smart_push_pull_with_registered_repo_smart_pull(
     mut kamu_api_server_client: KamuApiServerClient,
     is_push_workspace_multi_tenant: bool,
     is_pull_workspace_multi_tenant: bool,
@@ -1339,7 +1350,7 @@ async fn test_smart_push_to_registered_repo_smart_pull(
     );
     let kamu_api_server_dataset_endpoint = kamu_api_server_client
         .dataset()
-        .get_endpoint(&dataset_alias);
+        .get_odf_endpoint(&dataset_alias);
 
     // 1. Grub a token
     let token = kamu_api_server_client.auth().login_as_e2e_user().await;
@@ -1379,7 +1390,7 @@ async fn test_smart_push_to_registered_repo_smart_pull(
             .await
             .success();
 
-        // 2.3. Push the dataset to the API server without too argument
+        // 2.3. Push the dataset to the API server without to argument
         kamu_in_push_workspace
             .assert_success_command_execution(
                 [
@@ -1389,7 +1400,7 @@ async fn test_smart_push_to_registered_repo_smart_pull(
                     dataset_alias.dataset_name.as_str(),
                 ],
                 None,
-                Some(["1 dataset(s) pushed"]),
+                Some([r#"1 dataset\(s\) pushed"#]),
             )
             .await;
     }
@@ -1399,11 +1410,34 @@ async fn test_smart_push_to_registered_repo_smart_pull(
         let kamu_in_pull_workspace =
             KamuCliPuppet::new_workspace_tmp(is_pull_workspace_multi_tenant).await;
 
+        // 3.2. Login to the API server
+        // It will register new repo
+        kamu_in_pull_workspace
+            .execute([
+                "login",
+                kamu_api_server_client.get_base_url().as_str(),
+                "--access-token",
+                token.as_str(),
+            ])
+            .await
+            .success();
+
+        // ToDo: fix this behavior in scope of separation of pull and update commands
+        let dataset_ref = if is_pull_workspace_multi_tenant {
+            kamu_api_server_dataset_endpoint.as_str()
+        } else {
+            &format!(
+                "{}/{}",
+                kamu_api_server_client.get_base_url().host_str().unwrap(),
+                dataset_alias.dataset_name
+            )
+        };
+
         kamu_in_pull_workspace
             .assert_success_command_execution(
-                ["pull", kamu_api_server_dataset_endpoint.as_str()],
+                ["pull", dataset_ref],
                 None,
-                Some(["1 dataset(s) updated"]),
+                Some([r#"1 dataset\(s\) updated"#]),
             )
             .await;
     }

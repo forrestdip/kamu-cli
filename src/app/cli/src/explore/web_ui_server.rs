@@ -7,7 +7,9 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0.
 
+use std::future::IntoFuture;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::pin::Pin;
 use std::sync::Arc;
 
 use axum::http::Uri;
@@ -26,7 +28,7 @@ use kamu_accounts::{
     PROVIDER_PASSWORD,
 };
 use kamu_accounts_services::PasswordLoginCredentials;
-use kamu_adapter_http::FileUploadLimitConfig;
+use kamu_adapter_http::{DatasetAuthorizationLayer, FileUploadLimitConfig};
 use rust_embed::RustEmbed;
 use serde::Serialize;
 use url::Url;
@@ -61,7 +63,7 @@ struct WebUILoginInstructions {
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 pub struct WebUIServer {
-    server: axum::serve::Serve<axum::routing::IntoMakeService<axum::Router>, axum::Router>,
+    server_future: Pin<Box<dyn std::future::Future<Output = Result<(), std::io::Error>>>>,
     local_addr: SocketAddr,
     access_token: String,
 }
@@ -88,7 +90,11 @@ impl WebUIServer {
 
         let account_config = predefined_accounts_config
             .find_account_config_by_name(&current_account_name)
-            .or_else(|| Some(AccountConfig::from_name(current_account_name.clone())))
+            .or_else(|| {
+                Some(AccountConfig::test_config_from_name(
+                    current_account_name.clone(),
+                ))
+            })
             .unwrap();
 
         let login_credentials = PasswordLoginCredentials {
@@ -169,13 +175,14 @@ impl WebUIServer {
         )
         .nest(
             match tenancy_config {
-                TenancyConfig::MultiTenant => "/:account_name/:dataset_name",
-                TenancyConfig::SingleTenant => "/:dataset_name",
+                TenancyConfig::MultiTenant => "/{account_name}/{dataset_name}",
+                TenancyConfig::SingleTenant => "/{dataset_name}",
             },
             kamu_adapter_http::add_dataset_resolver_layer(
                 OpenApiRouter::new()
                     .merge(kamu_adapter_http::smart_transfer_protocol_router())
-                    .merge(kamu_adapter_http::data::dataset_router()),
+                    .merge(kamu_adapter_http::data::dataset_router())
+                    .layer(DatasetAuthorizationLayer::default()),
                 tenancy_config,
             ),
         )
@@ -205,15 +212,18 @@ impl WebUIServer {
         .layer(axum::extract::Extension(ui_configuration))
         .split_for_parts();
 
-        let server = axum::serve(
-            listener,
-            router
-                .layer(axum::extract::Extension(Arc::new(api)))
-                .into_make_service(),
+        let server_future = Box::pin(
+            axum::serve(
+                listener,
+                router
+                    .layer(axum::extract::Extension(Arc::new(api)))
+                    .into_make_service(),
+            )
+            .into_future(),
         );
 
         Ok(Self {
-            server,
+            server_future,
             local_addr,
             access_token,
         })
@@ -248,7 +258,7 @@ impl WebUIServer {
     }
 
     pub async fn run(self) -> Result<(), std::io::Error> {
-        self.server.await
+        self.server_future.await
     }
 }
 

@@ -22,7 +22,7 @@ use indoc::indoc;
 use internal_error::*;
 use kamu::domain::{Protocols, ServerUrlConfig, TenancyConfig};
 use kamu_adapter_http::e2e::e2e_router;
-use kamu_adapter_http::FileUploadLimitConfig;
+use kamu_adapter_http::{DatasetAuthorizationLayer, FileUploadLimitConfig};
 use kamu_flow_system_inmem::domain::FlowAgent;
 use kamu_task_system_inmem::domain::TaskAgent;
 use messaging_outbox::OutboxAgent;
@@ -36,12 +36,11 @@ use super::{UIConfiguration, UIFeatureFlags};
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 pub struct APIServer {
-    server: axum::serve::Serve<axum::routing::IntoMakeService<axum::Router>, axum::Router>,
+    server_future: Pin<Box<dyn std::future::Future<Output = Result<(), std::io::Error>>>>,
     local_addr: SocketAddr,
     task_agent: Arc<dyn TaskAgent>,
     flow_agent: Arc<dyn FlowAgent>,
     outbox_agent: Arc<OutboxAgent>,
-    maybe_shutdown_notify: Option<Arc<Notify>>,
 }
 
 impl APIServer {
@@ -161,15 +160,16 @@ impl APIServer {
         )
         .nest(
             match tenancy_config {
-                TenancyConfig::MultiTenant => "/:account_name/:dataset_name",
-                TenancyConfig::SingleTenant => "/:dataset_name",
+                TenancyConfig::MultiTenant => "/{account_name}/{dataset_name}",
+                TenancyConfig::SingleTenant => "/{dataset_name}",
             },
             kamu_adapter_http::add_dataset_resolver_layer(
                 OpenApiRouter::new()
                     .merge(kamu_adapter_http::smart_transfer_protocol_router())
-                    .merge(kamu_adapter_http::data::dataset_router()),
+                    .merge(kamu_adapter_http::data::dataset_router())
+                    .layer(DatasetAuthorizationLayer::default()),
                 tenancy_config,
-            ),
+            )
         );
 
         let is_e2e_testing = e2e_output_data_path.is_some();
@@ -220,13 +220,25 @@ impl APIServer {
 
         let server = axum::serve(listener, router.into_make_service());
 
+        let server_future: Pin<Box<dyn Future<Output = _>>> =
+            if let Some(shutdown_notify) = maybe_shutdown_notify {
+                Box::pin(async move {
+                    server
+                        .with_graceful_shutdown(async move {
+                            shutdown_notify.notified().await;
+                        })
+                        .await
+                })
+            } else {
+                Box::pin(server.into_future())
+            };
+
         Ok(Self {
-            server,
+            server_future,
             local_addr,
             task_agent,
             flow_agent,
             outbox_agent,
-            maybe_shutdown_notify,
         })
     }
 
@@ -235,22 +247,8 @@ impl APIServer {
     }
 
     pub async fn run(self) -> Result<(), InternalError> {
-        let server_run_fut: Pin<Box<dyn Future<Output = _>>> =
-            if let Some(shutdown_notify) = self.maybe_shutdown_notify {
-                Box::pin(async move {
-                    let server_with_graceful_shutdown =
-                        self.server.with_graceful_shutdown(async move {
-                            shutdown_notify.notified().await;
-                        });
-
-                    server_with_graceful_shutdown.await
-                })
-            } else {
-                Box::pin(self.server.into_future())
-            };
-
         tokio::select! {
-            res = server_run_fut => { res.int_err() },
+            res = self.server_future => { res.int_err() },
             res = self.outbox_agent.run() => { res.int_err() },
             res = self.task_agent.run() => { res.int_err() },
             res = self.flow_agent.run() => { res.int_err() }

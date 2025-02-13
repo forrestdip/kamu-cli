@@ -1,0 +1,28 @@
+kind: DatasetSnapshot
+version: 1
+content:
+  name: 6pub1
+  kind: Derivative
+  metadata:
+    - kind: SetTransform
+      inputs:
+        - datasetRef: alice/5priv1
+        - datasetRef: alice/5pub1
+      transform:
+        kind: Sql
+        engine: datafusion
+        queries:
+          - query: |
+              SELECT match_time,
+                     match_id,
+                     player_id,
+                     score
+              FROM "alice/5priv1"
+              UNION ALL
+              SELECT match_time,
+                     match_id,
+                     player_id,
+                     score
+              FROM "alice/5pub1"
+    - kind: SetVocab
+      eventTimeColumn: match_time

@@ -1,0 +1,21 @@
+kind: DatasetSnapshot
+version: 1
+content:
+  name: 5priv2
+  kind: Derivative
+  metadata:
+    - kind: SetTransform
+      inputs:
+        - datasetRef: alice/4priv
+      transform:
+        kind: Sql
+        engine: datafusion
+        queries:
+          - query: |
+              SELECT match_time,
+                     match_id,
+                     player_id,
+                     score
+              FROM "alice/4priv"
+    - kind: SetVocab
+      eventTimeColumn: match_time

@@ -96,14 +96,9 @@ impl DatasetActionAuthorizer for OsoDatasetAuthorizer {
             .is_allowed(user_actor, action.to_string(), dataset_resource)
         {
             Ok(allowed) if allowed => Ok(()),
-            Ok(_not_allowed) => Err(DatasetActionUnauthorizedError::Access(
-                odf::AccessError::Forbidden(
-                    DatasetActionNotEnoughPermissionsError {
-                        action,
-                        dataset_ref: dataset_id.as_local_ref(),
-                    }
-                    .into(),
-                ),
+            Ok(_not_allowed) => Err(DatasetActionUnauthorizedError::not_enough_permissions(
+                dataset_id.as_local_ref(),
+                action,
             )),
             Err(e) => Err(DatasetActionUnauthorizedError::Internal(e.int_err())),
         }
@@ -140,7 +135,7 @@ impl DatasetActionAuthorizer for OsoDatasetAuthorizer {
             .get_multiple_dataset_resources(&dataset_ids)
             .await
             .int_err()?;
-        let mut dataset_handle_id_mapping =
+        let dataset_handle_id_mapping =
             dataset_handles
                 .into_iter()
                 .fold(HashMap::new(), |mut acc, hdl| {
@@ -156,11 +151,12 @@ impl DatasetActionAuthorizer for OsoDatasetAuthorizer {
 
             if is_allowed {
                 let dataset_handle = dataset_handle_id_mapping
-                    // Thus we obtain the value without cloning
-                    .remove(&dataset_id)
+                    .get(&dataset_id)
                     .ok_or_else(|| {
-                        format!("Unexpectedly, dataset_handle was found: {dataset_id}").int_err()
-                    })?;
+                        format!("Unexpectedly, dataset_handle not was found: {dataset_id}")
+                            .int_err()
+                    })?
+                    .clone();
 
                 matched_dataset_handles.push(dataset_handle);
             }
@@ -188,7 +184,7 @@ impl DatasetActionAuthorizer for OsoDatasetAuthorizer {
             .get_multiple_dataset_resources(&dataset_ids)
             .await
             .int_err()?;
-        let mut dataset_handle_id_mapping =
+        let dataset_handle_id_mapping =
             dataset_handles
                 .into_iter()
                 .fold(HashMap::new(), |mut acc, hdl| {
@@ -198,11 +194,11 @@ impl DatasetActionAuthorizer for OsoDatasetAuthorizer {
 
         for (dataset_id, dataset_resource) in dataset_resources_resolution.resolved_resources {
             let dataset_handle = dataset_handle_id_mapping
-                // Thus we obtain the value without cloning
-                .remove(&dataset_id)
+                .get(&dataset_id)
                 .ok_or_else(|| {
-                    format!("Unexpectedly, dataset_handle was found: {dataset_id}").int_err()
-                })?;
+                    format!("Unexpectedly, dataset_handle not was found: {dataset_id}").int_err()
+                })?
+                .clone();
 
             let is_allowed = self
                 .kamu_auth_oso
@@ -215,13 +211,7 @@ impl DatasetActionAuthorizer for OsoDatasetAuthorizer {
                 let dataset_ref = dataset_handle.as_local_ref();
                 unmatched_results.push((
                     dataset_handle,
-                    DatasetActionUnauthorizedError::Access(odf::AccessError::Forbidden(
-                        DatasetActionNotEnoughPermissionsError {
-                            action,
-                            dataset_ref,
-                        }
-                        .into(),
-                    )),
+                    DatasetActionUnauthorizedError::not_enough_permissions(dataset_ref, action),
                 ));
             }
         }
@@ -259,13 +249,7 @@ impl DatasetActionAuthorizer for OsoDatasetAuthorizer {
                 let dataset_ref = dataset_id.as_local_ref();
                 unauthorized_ids_with_errors.push((
                     dataset_id,
-                    DatasetActionUnauthorizedError::Access(odf::AccessError::Forbidden(
-                        DatasetActionNotEnoughPermissionsError {
-                            action,
-                            dataset_ref,
-                        }
-                        .into(),
-                    )),
+                    DatasetActionUnauthorizedError::not_enough_permissions(dataset_ref, action),
                 ));
             }
         }

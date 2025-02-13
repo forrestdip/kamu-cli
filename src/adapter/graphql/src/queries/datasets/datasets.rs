@@ -8,14 +8,10 @@
 // by the Apache License, Version 2.0.
 
 use kamu_core::auth::{DatasetAction, DatasetActionAuthorizer, DatasetActionAuthorizerExt};
-use kamu_core::{
-    DatasetRegistryExt,
-    {self as domain},
-};
+use kamu_datasets::{ViewDatasetUseCase, ViewDatasetUseCaseError};
 
 use crate::prelude::*;
 use crate::queries::*;
-use crate::utils::check_dataset_read_access;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -31,20 +27,17 @@ impl Datasets {
         ctx: &Context<'_>,
         dataset_ref: &odf::DatasetRef,
     ) -> Result<Option<Dataset>> {
-        let dataset_registry = from_catalog_n!(ctx, dyn domain::DatasetRegistry);
-        // TODO: Extract into ViewDatasetUseCase
-        let maybe_handle = dataset_registry
-            .try_resolve_dataset_handle_by_ref(dataset_ref)
-            .await?;
+        let view_dataset_use_case = from_catalog_n!(ctx, dyn ViewDatasetUseCase);
 
-        let Some(handle) = maybe_handle else {
-            return Ok(None);
-        };
-
-        if check_dataset_read_access(ctx, &handle).await.is_err() {
-            return Ok(None);
-        }
-
+        let handle = match view_dataset_use_case.execute(dataset_ref).await {
+            Ok(handle) => Ok(handle),
+            Err(e) => match e {
+                ViewDatasetUseCaseError::NotFound(_) | ViewDatasetUseCaseError::Access(_) => {
+                    return Ok(None)
+                }
+                unexpected_error => Err(unexpected_error.int_err()),
+            },
+        }?;
         let account = Account::from_dataset_alias(ctx, &handle.alias)
             .await?
             .expect("Account must exist");
@@ -82,7 +75,7 @@ impl Datasets {
     ) -> Result<DatasetConnection> {
         let (dataset_registry, dataset_action_authorizer) = from_catalog_n!(
             ctx,
-            dyn domain::DatasetRegistry,
+            dyn kamu_core::DatasetRegistry,
             dyn DatasetActionAuthorizer
         );
 
@@ -123,12 +116,10 @@ impl Datasets {
         page: Option<usize>,
         per_page: Option<usize>,
     ) -> Result<DatasetConnection> {
-        let authentication_service = from_catalog_n!(ctx, dyn kamu_accounts::AuthenticationService);
+        let account_service = from_catalog_n!(ctx, dyn kamu_accounts::AccountService);
 
         let account_id: odf::AccountID = account_id.into();
-        let maybe_account_name = authentication_service
-            .find_account_name_by_id(&account_id)
-            .await?;
+        let maybe_account_name = account_service.find_account_name_by_id(&account_id).await?;
 
         if let Some(account_name) = maybe_account_name {
             self.by_account_impl(

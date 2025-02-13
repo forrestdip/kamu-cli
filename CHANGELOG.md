@@ -12,6 +12,74 @@ Recommendation: for ease of reading, use the following order:
 -->
 
 ## [Unreleased]
+### Fixed
+- Improved error message for SQL parsing method for queries which includes invalid or reserved keywords
+
+## [0.223.0] - 2025-02-13
+### Added
+- Increased test coverage of the code responsible for access checks
+### Changed
+- Restructured responsibilities between core and dataset domains upon key dataset CRUD use cases:
+   - 8 use cases moved from `core` to `kamu-datasets` domain
+   - no longer using outbox for "Renamed" and "DependenciesUpdated" events in datasets, 
+     these became internal aspect inside `kamu-datasets` domain
+   - simplified creation and commit result structures as they no longer transport new dependencies
+   - revised many integration tests:
+       - flow system no longer uses real datasets
+       - HTTP and GQL use real accounts and dataset entries
+- Moved several account-related routines from `AuthenticationService` to `AccountService`, 
+  the authentication services has focus only on JWT token and login flows
+- Upgraded to `datafusion v45` (#1063)
+### Fixed
+- GQL metadata query now correctly returns dataset aliases for `SetTransform` event in multi-tenant mode
+- Handle panic errors in `kamu inspect lineage -- browse` command
+- Improved result messages for `kamu system diagnose` command
+
+## [0.222.0] - 2025-02-06
+### Added
+- New `AccessTokenLifecycleMessage` outbox message which produced during access token   creation
+### Changed
+- `kamu pull` command now can be called with passing `<remote_repo>/<dataset_name>` arg
+  and pull url will be combined automatically 
+
+## [0.221.1] - 2025-01-31
+### Fixed
+- Private Datasets:
+  - Validation `SetTransform` event (input datasets): IDs are used for accessibility checks. 
+      Aliases are used only to generate an error message.
+  - `OsoDatasetAuthorizer`: readiness to handle duplicates when filtering
+
+## [0.221.0] - 2025-01-29
+### Added
+- GQL support to query and update email on the currently logged account
+- Account registration sends `AccountLifecycleEvent` to `Outbox`
+### Changed
+- Emails are mandatory for Kamu accounts now:
+  - predefined users need to specify an email in config
+  - predefined users are auto-synced at startup in case they existed before
+  - GitHub users are queried for primary verified email, even if it is not public
+  - migration code for the database existing users
+
+## [0.220.0] - 2025-01-27
+### Changed
+- Private Datasets:
+  - GQL, `DatasetFlowRunsMut::trigger_flow()`: added check of input datasets for accessibility for `ExecuteTransform`
+  - GQL, `TransformInput::input_dataset()`: dataset may not be accessible
+  - GQL, `MetadataChainMut::commit_event`: added check of dataset inputs for availability for `SetTransform`
+  - HTTP: added access check for the dataset router (`DatasetAuthorizationMiddleware`), affected:
+    - `POST /{dataset}/ingest`
+    - `GET /{dataset}/metadata`
+    - `GET /{dataset}/tail`
+  - HTTP, `GET /datasets/{id}`: access check corrected
+  - HTTP: replaced access errors with not found errors
+  - CLI, `kamu pull`: replaced access errors with not found errors
+- Continued work on use cases extracting:
+  - `ViewDatasetUseCase`
+  - `EditDatasetUseCase`
+  - `GetDatasetDownstreamDependenciesUseCaseImpl`
+  - `GetDatasetUpstreamDependenciesUseCaseImpl`
+
+## [0.219.2] - 2025-01-24
 ### Added
 - Reusable static database migrators 
 
@@ -350,7 +418,7 @@ Introduced `DatasetRegistry` abstraction, encapsulating listing and resolution o
 ### Changed
 - Outbox main loop was revised to minimize the number of transactions:
     - split outbox into planner and consumption jobs components
-    - planner analyzes current state and loads bunch of unprocessed messages within a 1 transaction only
+    - planner analyzes current state and loads a bunch of unprocessed messages within a 1 transaction only
     - consumption jobs invoke consumers and detect their failures
 - Detecting concurrent modifications in flow and task event stores
 - Improved and cleaned handling of flow abortions at different stages of processing
@@ -1191,7 +1259,7 @@ Introduced `DatasetRegistry` abstraction, encapsulating listing and resolution o
 - New `kamu ingest` command allows you to push data into a root dataset, examples:
   - `kamu ingest my.dataset data-2023-*.json` - to push from files
   - `echo '{"city": "Vancouver", "population": 675218}' | kamu ingest cities --stdin`
-- New `/:dataset/ingest` REST endpoint also allows you to push data via API, example:
+- New `/{dataset}/ingest` REST endpoint also allows you to push data via API, example:
   - Run API server and get JWT token: `kamu ui --http-port 8080 --get-token`
   - Push data: `echo '[{...}]' | curl -v -X POST http://localhost:8080/freezer/ingest -H 'Authorization:  Bearer <token>'`
 - The `kamu ui` command now supports `--get-token` flag to print out the access token upon server start that you can use to experiment with API

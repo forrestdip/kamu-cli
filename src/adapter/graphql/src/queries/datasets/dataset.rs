@@ -9,10 +9,11 @@
 
 use chrono::prelude::*;
 use kamu_core::ServerUrlConfig;
+use kamu_datasets::{ViewDatasetUseCase, ViewDatasetUseCaseError};
 
 use crate::prelude::*;
 use crate::queries::*;
-use crate::utils::{check_dataset_read_access, ensure_dataset_env_vars_enabled, get_dataset};
+use crate::utils::{ensure_dataset_env_vars_enabled, get_dataset};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -34,21 +35,39 @@ impl Dataset {
 
     #[graphql(skip)]
     pub async fn from_ref(ctx: &Context<'_>, dataset_ref: &odf::DatasetRef) -> Result<Dataset> {
-        let dataset_registry = from_catalog_n!(ctx, dyn kamu_core::DatasetRegistry);
+        let view_dataset_use_case = from_catalog_n!(ctx, dyn ViewDatasetUseCase);
 
-        // TODO: Should we resolve reference at this point or allow unresolved and fail
-        //       later?
-        let handle = dataset_registry
-            .resolve_dataset_handle_by_ref(dataset_ref)
-            .await
-            .int_err()?;
+        let handle = view_dataset_use_case.execute(dataset_ref).await.int_err()?;
+        let account = Account::from_dataset_alias(ctx, &handle.alias)
+            .await?
+            .expect("Account must exist");
 
-        check_dataset_read_access(ctx, &handle).await?;
+        Ok(Dataset::new(account, handle))
+    }
+
+    #[graphql(skip)]
+    pub async fn try_from_ref(
+        ctx: &Context<'_>,
+        dataset_ref: &odf::DatasetRef,
+    ) -> Result<TransformInputDataset> {
+        let view_dataset_use_case = from_catalog_n!(ctx, dyn ViewDatasetUseCase);
+
+        let handle = match view_dataset_use_case.execute(dataset_ref).await {
+            Ok(handle) => Ok(handle),
+            Err(e) => match e {
+                ViewDatasetUseCaseError::Access(_) => {
+                    return Ok(TransformInputDataset::not_accessible(dataset_ref.clone()))
+                }
+                unexpected_error => Err(unexpected_error.int_err()),
+            },
+        }?;
 
         let account = Account::from_dataset_alias(ctx, &handle.alias)
             .await?
             .expect("Account must exist");
-        Ok(Dataset::new(account, handle))
+        let dataset = Dataset::new(account, handle);
+
+        Ok(TransformInputDataset::accessible(dataset))
     }
 
     /// Unique identifier of the dataset
@@ -75,7 +94,7 @@ impl Dataset {
 
     /// Returns the kind of dataset (Root or Derivative)
     async fn kind(&self, ctx: &Context<'_>) -> Result<DatasetKind> {
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle)?;
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
         let summary = resolved_dataset
             .get_summary(odf::dataset::GetSummaryOpts::default())
             .await
@@ -83,12 +102,11 @@ impl Dataset {
         Ok(summary.kind.into())
     }
 
-    // TODO: Private Datasets: tests
     /// Returns the visibility of dataset
     async fn visibility(&self, ctx: &Context<'_>) -> Result<DatasetVisibilityOutput> {
         let rebac_svc = from_catalog_n!(ctx, dyn kamu_auth_rebac::RebacService);
 
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle)?;
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
         let properties = rebac_svc
             .get_dataset_properties(resolved_dataset.get_id())
             .await
@@ -129,7 +147,7 @@ impl Dataset {
     // TODO: PERF: Avoid traversing the entire chain
     /// Creation time of the first metadata block in the chain
     async fn created_at(&self, ctx: &Context<'_>) -> Result<DateTime<Utc>> {
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle)?;
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
 
         use odf::dataset::MetadataChainExt as _;
         Ok(resolved_dataset
@@ -144,7 +162,7 @@ impl Dataset {
 
     /// Creation time of the most recent metadata block in the chain
     async fn last_updated_at(&self, ctx: &Context<'_>) -> Result<DateTime<Utc>> {
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle)?;
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
 
         use odf::dataset::MetadataChainExt as __;
         Ok(resolved_dataset

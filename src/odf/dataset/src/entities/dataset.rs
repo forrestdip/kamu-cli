@@ -68,6 +68,7 @@ pub trait Dataset: Send + Sync {
     fn get_storage_internal_url(&self) -> &Url;
 
     fn as_metadata_chain(&self) -> &dyn MetadataChain;
+
     fn as_data_repo(&self) -> &dyn ObjectRepository;
     fn as_checkpoint_repo(&self) -> &dyn ObjectRepository;
     fn as_info_repo(&self) -> &dyn NamedObjectRepository;
@@ -126,7 +127,6 @@ impl Default for CommitOpts<'_> {
 pub struct CommitResult {
     pub old_head: Option<Multihash>,
     pub new_head: Multihash,
-    pub new_upstream_ids: Vec<DatasetID>,
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -253,7 +253,8 @@ impl From<CheckpointRef> for Option<OwnedFile> {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Serialize, Deserialize, strum::Display)]
+#[strum(serialize_all = "snake_case")]
 pub enum DatasetVisibility {
     #[default]
     #[serde(alias = "private")]

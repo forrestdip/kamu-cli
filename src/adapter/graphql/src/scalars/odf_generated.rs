@@ -135,8 +135,8 @@ pub struct Checkpoint {
     pub size: u64,
 }
 
-impl From<odf::Checkpoint> for Checkpoint {
-    fn from(v: odf::Checkpoint) -> Self {
+impl From<odf::metadata::Checkpoint> for Checkpoint {
+    fn from(v: odf::metadata::Checkpoint) -> Self {
         Self {
             physical_hash: v.physical_hash.into(),
             size: v.size.into(),
@@ -157,8 +157,8 @@ pub struct DataSlice {
     pub size: u64,
 }
 
-impl From<odf::DataSlice> for DataSlice {
-    fn from(v: odf::DataSlice) -> Self {
+impl From<odf::metadata::DataSlice> for DataSlice {
+    fn from(v: odf::metadata::DataSlice) -> Self {
         Self {
             logical_hash: v.logical_hash.into(),
             physical_hash: v.physical_hash.into(),
@@ -1418,6 +1418,51 @@ impl From<odf::metadata::TransformSql> for TransformSql {
 // https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#transforminput-schema
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Interface, Debug, Clone)]
+#[graphql(field(name = "message", ty = "String"))]
+pub enum TransformInputDataset {
+    Accessible(TransformInputDatasetAccessible),
+    NotAccessible(TransformInputDatasetNotAccessible),
+}
+
+impl TransformInputDataset {
+    pub fn accessible(dataset: Dataset) -> Self {
+        Self::Accessible(TransformInputDatasetAccessible { dataset })
+    }
+
+    pub fn not_accessible(dataset_ref: odf::DatasetRef) -> Self {
+        Self::NotAccessible(TransformInputDatasetNotAccessible {
+            dataset_ref: dataset_ref.into(),
+        })
+    }
+}
+
+#[derive(SimpleObject, Debug, Clone)]
+#[graphql(complex)]
+pub struct TransformInputDatasetAccessible {
+    pub dataset: Dataset,
+}
+
+#[ComplexObject]
+impl TransformInputDatasetAccessible {
+    async fn message(&self) -> String {
+        "Found".to_string()
+    }
+}
+
+#[derive(SimpleObject, Debug, Clone)]
+#[graphql(complex)]
+pub struct TransformInputDatasetNotAccessible {
+    pub dataset_ref: DatasetRef,
+}
+
+#[ComplexObject]
+impl TransformInputDatasetNotAccessible {
+    async fn message(&self) -> String {
+        "Not Accessible".to_string()
+    }
+}
+
 #[derive(SimpleObject, Debug, Clone, PartialEq, Eq)]
 #[graphql(complex)]
 pub struct TransformInput {
@@ -1427,8 +1472,8 @@ pub struct TransformInput {
 
 #[ComplexObject]
 impl TransformInput {
-    async fn dataset(&self, ctx: &Context<'_>) -> Result<Dataset> {
-        Dataset::from_ref(ctx, &self.dataset_ref).await
+    async fn input_dataset(&self, ctx: &Context<'_>) -> Result<TransformInputDataset> {
+        Dataset::try_from_ref(ctx, &self.dataset_ref).await
     }
 }
 

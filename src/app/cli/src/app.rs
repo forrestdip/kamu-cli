@@ -23,7 +23,6 @@ use kamu_accounts::*;
 use kamu_accounts_services::PredefinedAccountsRegistrator;
 use kamu_adapter_http::{FileUploadLimitConfig, UploadServiceLocal};
 use kamu_adapter_oauth::GithubAuthenticationConfig;
-use kamu_datasets::DatasetEnvVar;
 use kamu_flow_system_inmem::domain::{
     FlowConfigurationUpdatedMessage,
     FlowProgressMessage,
@@ -391,7 +390,7 @@ pub fn configure_base_catalog(
         DatasetStorageUnitLocalFs::builder().with_root(workspace_layout.datasets_dir.clone()),
     );
     b.bind::<dyn odf::DatasetStorageUnit, DatasetStorageUnitLocalFs>();
-    b.bind::<dyn DatasetStorageUnitWriter, DatasetStorageUnitLocalFs>();
+    b.bind::<dyn odf::DatasetStorageUnitWriter, DatasetStorageUnitLocalFs>();
 
     b.add::<odf::dataset::DatasetFactoryImpl>();
 
@@ -455,20 +454,23 @@ pub fn configure_base_catalog(
     b.add::<kamu::utils::simple_transfer_protocol::SimpleTransferProtocol>();
     b.add::<kamu_adapter_http::SmartTransferProtocolClientWs>();
 
-    b.add::<AppendDatasetMetadataBatchUseCaseImpl>();
-    b.add::<CommitDatasetEventUseCaseImpl>();
     b.add::<CompactDatasetUseCaseImpl>();
-    b.add::<CreateDatasetUseCaseImpl>();
-    b.add::<CreateDatasetFromSnapshotUseCaseImpl>();
-    b.add::<DeleteDatasetUseCaseImpl>();
+    b.add::<GetDatasetDownstreamDependenciesUseCaseImpl>();
+    b.add::<GetDatasetUpstreamDependenciesUseCaseImpl>();
     b.add::<PullDatasetUseCaseImpl>();
     b.add::<PushDatasetUseCaseImpl>();
-    b.add::<RenameDatasetUseCaseImpl>();
     b.add::<ResetDatasetUseCaseImpl>();
     b.add::<SetWatermarkUseCaseImpl>();
     b.add::<VerifyDatasetUseCaseImpl>();
-    b.add::<GetDatasetDownstreamDependenciesUseCaseImpl>();
-    b.add::<GetDatasetUpstreamDependenciesUseCaseImpl>();
+
+    b.add::<kamu_datasets_services::AppendDatasetMetadataBatchUseCaseImpl>();
+    b.add::<kamu_datasets_services::CommitDatasetEventUseCaseImpl>();
+    b.add::<kamu_datasets_services::EditDatasetUseCaseImpl>();
+    b.add::<kamu_datasets_services::CreateDatasetFromSnapshotUseCaseImpl>();
+    b.add::<kamu_datasets_services::CreateDatasetUseCaseImpl>();
+    b.add::<kamu_datasets_services::DeleteDatasetUseCaseImpl>();
+    b.add::<kamu_datasets_services::RenameDatasetUseCaseImpl>();
+    b.add::<kamu_datasets_services::ViewDatasetUseCaseImpl>();
 
     b.add::<kamu_accounts_services::LoginPasswordAuthProvider>();
 
@@ -532,9 +534,9 @@ pub fn configure_base_catalog(
     b.add::<crate::explore::SparkLivyServerFactory>();
     b.add::<crate::explore::NotebookServerFactory>();
 
-    register_message_dispatcher::<DatasetLifecycleMessage>(
+    register_message_dispatcher::<kamu_datasets::DatasetLifecycleMessage>(
         &mut b,
-        MESSAGE_PRODUCER_KAMU_CORE_DATASET_SERVICE,
+        kamu_datasets::MESSAGE_PRODUCER_KAMU_DATASET_SERVICE,
     );
 
     b
@@ -586,8 +588,15 @@ pub fn configure_server_catalog(base_catalog: &Catalog) -> CatalogBuilder {
         &mut b,
         MESSAGE_PRODUCER_KAMU_FLOW_TRIGGER_SERVICE,
     );
-
     register_message_dispatcher::<TaskProgressMessage>(&mut b, MESSAGE_PRODUCER_KAMU_TASK_AGENT);
+    register_message_dispatcher::<AccountLifecycleMessage>(
+        &mut b,
+        MESSAGE_PRODUCER_KAMU_ACCOUNTS_SERVICE,
+    );
+    register_message_dispatcher::<AccessTokenLifecycleMessage>(
+        &mut b,
+        MESSAGE_PRODUCER_KAMU_ACCESS_TOKEN_SERVICE,
+    );
 
     b
 }
@@ -752,7 +761,7 @@ pub fn register_config_in_catalog(
     if tenancy_config == TenancyConfig::MultiTenant {
         let mut implicit_user_config = PredefinedAccountsConfig::new();
         implicit_user_config.predefined.push(
-            AccountConfig::from_name(odf::AccountName::new_unchecked(
+            AccountConfig::test_config_from_name(odf::AccountName::new_unchecked(
                 AccountService::default_account_name(TenancyConfig::MultiTenant).as_str(),
             ))
             .set_display_name(AccountService::default_user_name(
@@ -762,7 +771,7 @@ pub fn register_config_in_catalog(
 
         if is_e2e_testing {
             let e2e_user_config =
-                AccountConfig::from_name(odf::AccountName::new_unchecked("e2e-user"));
+                AccountConfig::test_config_from_name(odf::AccountName::new_unchecked("e2e-user"));
 
             implicit_user_config.predefined.push(e2e_user_config);
         }
@@ -811,7 +820,7 @@ pub fn register_config_in_catalog(
                 catalog_builder.add::<kamu_datasets_services::DatasetEnvVarServiceNull>();
             } else {
                 assert!(
-                    DatasetEnvVar::try_asm_256_gcm_from_str(encryption_key).is_ok(),
+                    kamu_datasets::DatasetEnvVar::try_asm_256_gcm_from_str(encryption_key).is_ok(),
                     "Invalid dataset env var encryption key",
                 );
                 catalog_builder.add::<kamu_datasets_services::DatasetKeyValueServiceImpl>();

@@ -10,7 +10,7 @@
 use internal_error::{BoxedError, InternalError};
 use thiserror::Error;
 
-use super::{InvalidCredentialsError, RejectedCredentialsError};
+use super::{InvalidCredentialsError, NoPrimaryEmailError, RejectedCredentialsError};
 use crate::{Account, FindAccountIdByProviderIdentityKeyError, ProviderLoginError};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -26,31 +26,6 @@ pub trait AuthenticationService: Sync + Send {
     ) -> Result<LoginResponse, LoginError>;
 
     async fn account_by_token(&self, access_token: String) -> Result<Account, GetAccountInfoError>;
-
-    async fn account_by_id(
-        &self,
-        account_id: &odf::AccountID,
-    ) -> Result<Option<Account>, InternalError>;
-
-    async fn accounts_by_ids(
-        &self,
-        account_ids: Vec<odf::AccountID>,
-    ) -> Result<Vec<Account>, InternalError>;
-
-    async fn account_by_name(
-        &self,
-        account_name: &odf::AccountName,
-    ) -> Result<Option<Account>, InternalError>;
-
-    async fn find_account_id_by_name(
-        &self,
-        account_name: &odf::AccountName,
-    ) -> Result<Option<odf::AccountID>, InternalError>;
-
-    async fn find_account_name_by_id(
-        &self,
-        account_id: &odf::AccountID,
-    ) -> Result<Option<odf::AccountName>, InternalError>;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -87,6 +62,13 @@ pub enum LoginError {
         RejectedCredentialsError,
     ),
 
+    #[error(transparent)]
+    NoPrimaryEmail(
+        #[from]
+        #[backtrace]
+        NoPrimaryEmailError,
+    ),
+
     #[error("Credentials are already used by an existing account")]
     DuplicateCredentials,
 
@@ -109,6 +91,7 @@ impl From<ProviderLoginError> for LoginError {
         match value {
             ProviderLoginError::InvalidCredentials(e) => Self::InvalidCredentials(e),
             ProviderLoginError::RejectedCredentials(e) => Self::RejectedCredentials(e),
+            ProviderLoginError::NoPrimaryEmail(e) => Self::NoPrimaryEmail(e),
             ProviderLoginError::Internal(e) => Self::Internal(e),
         }
     }

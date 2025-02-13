@@ -8,6 +8,7 @@
 // by the Apache License, Version 2.0.
 
 use kamu_core::DatasetRegistry;
+use kamu_datasets::ViewDatasetUseCase;
 use kamu_flow_system as fs;
 
 use super::FlowNotFound;
@@ -78,7 +79,7 @@ pub(crate) async fn ensure_expected_dataset_kind(
     let dataset_flow_type: kamu_flow_system::DatasetFlowType = dataset_flow_type.into();
     match dataset_flow_type.dataset_kind_restriction() {
         Some(expected_kind) => {
-            let resolved_dataset = utils::get_dataset(ctx, dataset_handle)?;
+            let resolved_dataset = utils::get_dataset(ctx, dataset_handle);
 
             let dataset_kind = resolved_dataset
                 .get_summary(odf::dataset::GetSummaryOpts::default())
@@ -125,13 +126,41 @@ pub(crate) async fn ensure_flow_preconditions(
             }
         }
         DatasetFlowType::ExecuteTransform => {
-            let metadata_query_service = from_catalog_n!(ctx, dyn kamu_core::MetadataQueryService);
+            let (metadata_query_service, view_dataset_use_case) = from_catalog_n!(
+                ctx,
+                dyn kamu_core::MetadataQueryService,
+                dyn ViewDatasetUseCase
+            );
             let source_res = metadata_query_service.get_active_transform(target).await?;
-            if source_res.is_none() {
-                return Ok(Some(FlowPreconditionsNotMet {
-                    preconditions: "No SetTransform event defined".to_string(),
-                }));
-            };
+
+            match source_res {
+                Some((_, set_transform_block)) => {
+                    let set_transform = set_transform_block.event;
+                    let inputs_dataset_refs = set_transform
+                        .inputs
+                        .iter()
+                        .map(|input| input.dataset_ref.clone())
+                        .collect::<Vec<_>>();
+
+                    let view_result = view_dataset_use_case
+                        .execute_multi(inputs_dataset_refs)
+                        .await?;
+
+                    if !view_result.inaccessible_refs.is_empty() {
+                        let dataset_ref_alias_map = set_transform.as_dataset_ref_alias_map();
+
+                        return Ok(Some(FlowPreconditionsNotMet {
+                            preconditions: view_result
+                                .into_inaccessible_input_datasets_message(&dataset_ref_alias_map),
+                        }));
+                    }
+                }
+                None => {
+                    return Ok(Some(FlowPreconditionsNotMet {
+                        preconditions: "No SetTransform event defined".to_string(),
+                    }));
+                }
+            }
         }
         DatasetFlowType::HardCompaction => (),
         DatasetFlowType::Reset => {
