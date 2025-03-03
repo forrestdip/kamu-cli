@@ -12,6 +12,7 @@ use dill::Catalog;
 use kamu::domain::TenancyConfig;
 use kamu_accounts::CurrentAccountSubject;
 
+use crate::cli::SystemApiServerSubCommand;
 use crate::commands::*;
 use crate::{accounts, cli, odf_server, WorkspaceService};
 
@@ -40,7 +41,7 @@ pub fn get_command(
             c.recursive,
             c.replace,
             c.stdin,
-            c.visibility.into(),
+            c.visibility.map(Into::into),
             cli_catalog.get_one()?,
             tenancy_config,
             cli_catalog.get_one()?,
@@ -172,6 +173,7 @@ pub fn get_command(
             Box::new(ListCommand::new(
                 cli_catalog.get_one()?,
                 cli_catalog.get_one()?,
+                cli_catalog.get_one()?,
                 accounts::AccountService::current_account_indication(
                     args.account,
                     tenancy_config,
@@ -199,7 +201,7 @@ pub fn get_command(
             Some(cli::LoginSubCommand::Oauth(sc)) => Box::new(LoginSilentCommand::new(
                 cli_catalog.get_one()?,
                 cli_catalog.get_one()?,
-                if sc.user {
+                if c.user {
                     odf_server::AccessTokenStoreScope::User
                 } else {
                     odf_server::AccessTokenStoreScope::Workspace
@@ -213,7 +215,7 @@ pub fn get_command(
             Some(cli::LoginSubCommand::Password(sc)) => Box::new(LoginSilentCommand::new(
                 cli_catalog.get_one()?,
                 cli_catalog.get_one()?,
-                if sc.user {
+                if c.user {
                     odf_server::AccessTokenStoreScope::User
                 } else {
                     odf_server::AccessTokenStoreScope::Workspace
@@ -295,6 +297,7 @@ pub fn get_command(
                     !c.no_alias,
                     c.force,
                     c.reset_derivatives_on_diverged_input,
+                    c.visibility.map(Into::into),
                 ))
             }
         }
@@ -307,7 +310,7 @@ pub fn get_command(
             !c.no_alias,
             c.force,
             c.to,
-            c.visibility.into(),
+            c.visibility.map(Into::into),
             cli_catalog.get_one()?,
             tenancy_config,
         )),
@@ -539,6 +542,45 @@ pub fn command_needs_transaction(args: &cli::Cli) -> bool {
         cli::Command::Ui(_) => false,
         _ => true,
     }
+}
+
+pub fn command_needs_workspace(args: &cli::Cli) -> bool {
+    match &args.command {
+        cli::Command::Complete(_)
+        | cli::Command::Completions(_)
+        | cli::Command::Config(_)
+        | cli::Command::Init(_)
+        | cli::Command::New(_)
+        | cli::Command::Version(_) => false,
+
+        cli::Command::System(s) => match &s.subcommand {
+            cli::SystemSubCommand::ApiServer(a) => match &a.subcommand {
+                None | Some(SystemApiServerSubCommand::GqlQuery(_)) => true,
+                Some(SystemApiServerSubCommand::GqlSchema(_)) => false,
+            },
+            cli::SystemSubCommand::DebugToken(_)
+            | cli::SystemSubCommand::Decode(_)
+            | cli::SystemSubCommand::Diagnose(_)
+            | cli::SystemSubCommand::GenerateToken(_)
+            | cli::SystemSubCommand::Info(_)
+            | cli::SystemSubCommand::UpgradeWorkspace(_) => false,
+            _ => true,
+        },
+        cli::Command::Login(l) => !l.user,
+        _ => true,
+    }
+}
+
+pub fn command_needs_startup_jobs(args: &cli::Cli) -> bool {
+    if command_needs_workspace(args) {
+        return true;
+    }
+
+    if let cli::Command::Complete(_) = &args.command {
+        return true;
+    }
+
+    false
 }
 
 #[allow(clippy::match_like_matches_macro)]

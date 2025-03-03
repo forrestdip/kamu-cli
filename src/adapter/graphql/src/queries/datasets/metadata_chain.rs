@@ -32,6 +32,7 @@ pub struct MetadataChain {
     dataset_handle: odf::DatasetHandle,
 }
 
+#[common_macros::method_names_consts(const_value_prefix = "GQL: ")]
 #[Object]
 impl MetadataChain {
     const DEFAULT_BLOCKS_PER_PAGE: usize = 20;
@@ -42,9 +43,9 @@ impl MetadataChain {
     }
 
     /// Returns all named metadata block references
-    #[tracing::instrument(level = "info", skip_all)]
+    #[tracing::instrument(level = "info", name = MetadataChain_refs, skip_all)]
     async fn refs(&self, ctx: &Context<'_>) -> Result<Vec<BlockRef>> {
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle).await;
         Ok(vec![BlockRef {
             name: "head".to_owned(),
             block_hash: resolved_dataset
@@ -57,13 +58,13 @@ impl MetadataChain {
     }
 
     /// Returns a metadata block corresponding to the specified hash
-    #[tracing::instrument(level = "info", skip_all)]
+    #[tracing::instrument(level = "info", name = MetadataChain_block_by_hash, skip_all)]
     async fn block_by_hash(
         &self,
         ctx: &Context<'_>,
         hash: Multihash,
     ) -> Result<Option<MetadataBlockExtended>> {
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle).await;
         let block_maybe = resolved_dataset
             .as_metadata_chain()
             .try_get_block(&hash)
@@ -80,7 +81,7 @@ impl MetadataChain {
 
     /// Returns a metadata block corresponding to the specified hash and encoded
     /// in desired format
-    #[tracing::instrument(level = "info", skip_all)]
+    #[tracing::instrument(level = "info", name = MetadataChain_block_by_hash_encoded, skip_all)]
     async fn block_by_hash_encoded(
         &self,
         ctx: &Context<'_>,
@@ -89,7 +90,7 @@ impl MetadataChain {
     ) -> Result<Option<String>> {
         use odf::metadata::serde::MetadataBlockSerializer;
 
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle).await;
         match resolved_dataset
             .as_metadata_chain()
             .try_get_block(&hash)
@@ -111,14 +112,14 @@ impl MetadataChain {
     // TODO: Add ref parameter (defaulting to "head")
     // TODO: Support before/after style iteration
     /// Iterates all metadata blocks in the reverse chronological order
-    #[tracing::instrument(level = "info", skip_all)]
+    #[tracing::instrument(level = "info", name = MetadataChain_blocks, skip_all, fields(?page, ?per_page))]
     async fn blocks(
         &self,
         ctx: &Context<'_>,
         page: Option<usize>,
         per_page: Option<usize>,
     ) -> Result<MetadataBlockConnection> {
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle).await;
 
         let page = page.unwrap_or(0);
         let per_page = per_page.unwrap_or(Self::DEFAULT_BLOCKS_PER_PAGE);

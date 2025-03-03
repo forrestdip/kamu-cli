@@ -21,17 +21,25 @@ workspace = true
 doctest = false
 
 
+[features]
+default = []
+build-kamu-cli = [
+    # We add a dependency to ensure kamu-cli is up to date before calling tests
+    "dep:kamu-cli",
+]
+
+
 [package.metadata.cargo-udeps.ignore]
 normal = ["kamu-cli"]
 
 
 [dependencies]
+# No features
 http-common = { workspace = true }
+database-common = { workspace = true, default-features = false }
 kamu = { workspace = true, features = ["testing"] }
 kamu-accounts = { workspace = true }
 kamu-adapter-http = { workspace = true }
-# We add a dependency to ensure kamu-cli is up to date before calling tests
-kamu-cli = { workspace = true }
 kamu-cli-e2e-common = { workspace = true }
 kamu-cli-puppet = { workspace = true, default-features = false, features = [
     "extensions",
@@ -40,6 +48,10 @@ kamu-flow-system = { workspace = true }
 odf = { workspace = true }
 regex = { version = "1", default-features = false }
 test-utils = { workspace = true }
+
+# Feature: extensions
+kamu-cli = { optional = true, workspace = true }
+
 
 chrono = { version = "0.4", default-features = false }
 indoc = "2"
@@ -51,3 +63,5 @@ tempfile = { version = "3" }
 url = { version = "2", default-features = false }
 datafusion = { version = "45", default-features = false, features = [] }
 
+
+[dev-dependencies]

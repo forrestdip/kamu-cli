@@ -135,11 +135,11 @@ pub enum AttachmentsDef {
 }
 
 implement_serde_as!(Attachments, AttachmentsDef, "AttachmentsDef");
-implement_serde_as!(
-    AttachmentsEmbedded,
-    AttachmentsEmbeddedDef,
-    "AttachmentsEmbeddedDef"
-);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// AttachmentsEmbedded
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#attachmentsembedded-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[serde_as]
 #[skip_serializing_none]
@@ -150,6 +150,12 @@ pub struct AttachmentsEmbeddedDef {
     #[serde_as(as = "Vec<AttachmentEmbeddedDef>")]
     pub items: Vec<AttachmentEmbedded>,
 }
+
+implement_serde_as!(
+    AttachmentsEmbedded,
+    AttachmentsEmbeddedDef,
+    "AttachmentsEmbeddedDef"
+);
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Checkpoint
@@ -167,6 +173,27 @@ pub struct CheckpointDef {
 }
 
 implement_serde_as!(Checkpoint, CheckpointDef, "CheckpointDef");
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// CompressionFormat
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#compressionformat-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "CompressionFormat")]
+#[serde(deny_unknown_fields)]
+pub enum CompressionFormatDef {
+    #[serde(alias = "gzip")]
+    Gzip,
+    #[serde(alias = "zip")]
+    Zip,
+}
+
+implement_serde_as!(
+    CompressionFormat,
+    CompressionFormatDef,
+    "CompressionFormatDef"
+);
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // DataSlice
@@ -324,21 +351,11 @@ pub enum EventTimeSourceDef {
 }
 
 implement_serde_as!(EventTimeSource, EventTimeSourceDef, "EventTimeSourceDef");
-implement_serde_as!(
-    EventTimeSourceFromMetadata,
-    EventTimeSourceFromMetadataDef,
-    "EventTimeSourceFromMetadataDef"
-);
-implement_serde_as!(
-    EventTimeSourceFromSystemTime,
-    EventTimeSourceFromSystemTimeDef,
-    "EventTimeSourceFromSystemTimeDef"
-);
-implement_serde_as!(
-    EventTimeSourceFromPath,
-    EventTimeSourceFromPathDef,
-    "EventTimeSourceFromPathDef"
-);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// EventTimeSourceFromMetadata
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#eventtimesourcefrommetadata-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[serde_as]
 #[skip_serializing_none]
@@ -346,6 +363,17 @@ implement_serde_as!(
 #[serde(remote = "EventTimeSourceFromMetadata")]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct EventTimeSourceFromMetadataDef {}
+
+implement_serde_as!(
+    EventTimeSourceFromMetadata,
+    EventTimeSourceFromMetadataDef,
+    "EventTimeSourceFromMetadataDef"
+);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// EventTimeSourceFromPath
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#eventtimesourcefrompath-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[serde_as]
 #[skip_serializing_none]
@@ -357,12 +385,29 @@ pub struct EventTimeSourceFromPathDef {
     pub timestamp_format: Option<String>,
 }
 
+implement_serde_as!(
+    EventTimeSourceFromPath,
+    EventTimeSourceFromPathDef,
+    "EventTimeSourceFromPathDef"
+);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// EventTimeSourceFromSystemTime
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#eventtimesourcefromsystemtime-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 #[serde_as]
 #[skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(remote = "EventTimeSourceFromSystemTime")]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct EventTimeSourceFromSystemTimeDef {}
+
+implement_serde_as!(
+    EventTimeSourceFromSystemTime,
+    EventTimeSourceFromSystemTimeDef,
+    "EventTimeSourceFromSystemTimeDef"
+);
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ExecuteTransform
@@ -438,41 +483,59 @@ pub enum FetchStepDef {
 }
 
 implement_serde_as!(FetchStep, FetchStepDef, "FetchStepDef");
-implement_serde_as!(FetchStepUrl, FetchStepUrlDef, "FetchStepUrlDef");
-implement_serde_as!(
-    FetchStepFilesGlob,
-    FetchStepFilesGlobDef,
-    "FetchStepFilesGlobDef"
-);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// FetchStepContainer
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#fetchstepcontainer-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[serde_as]
+#[skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "FetchStepContainer")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct FetchStepContainerDef {
+    pub image: String,
+    pub command: Option<Vec<String>>,
+    pub args: Option<Vec<String>>,
+    #[serde_as(as = "Option<Vec<EnvVarDef>>")]
+    #[serde(default)]
+    pub env: Option<Vec<EnvVar>>,
+}
+
 implement_serde_as!(
     FetchStepContainer,
     FetchStepContainerDef,
     "FetchStepContainerDef"
 );
-implement_serde_as!(FetchStepMqtt, FetchStepMqttDef, "FetchStepMqttDef");
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// FetchStepEthereumLogs
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#fetchstepethereumlogs-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[serde_as]
+#[skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "FetchStepEthereumLogs")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct FetchStepEthereumLogsDef {
+    pub chain_id: Option<u64>,
+    pub node_url: Option<String>,
+    pub filter: Option<String>,
+    pub signature: Option<String>,
+}
+
 implement_serde_as!(
     FetchStepEthereumLogs,
     FetchStepEthereumLogsDef,
     "FetchStepEthereumLogsDef"
 );
 
-#[serde_as]
-#[skip_serializing_none]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(remote = "FetchStepUrl")]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct FetchStepUrlDef {
-    pub url: String,
-    #[serde_as(as = "Option<EventTimeSourceDef>")]
-    #[serde(default)]
-    pub event_time: Option<EventTimeSource>,
-    #[serde_as(as = "Option<SourceCachingDef>")]
-    #[serde(default)]
-    pub cache: Option<SourceCaching>,
-    #[serde_as(as = "Option<Vec<RequestHeaderDef>>")]
-    #[serde(default)]
-    pub headers: Option<Vec<RequestHeader>>,
-}
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// FetchStepFilesGlob
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#fetchstepfilesglob-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[serde_as]
 #[skip_serializing_none]
@@ -492,19 +555,16 @@ pub struct FetchStepFilesGlobDef {
     pub order: Option<SourceOrdering>,
 }
 
-#[serde_as]
-#[skip_serializing_none]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(remote = "FetchStepContainer")]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct FetchStepContainerDef {
-    pub image: String,
-    pub command: Option<Vec<String>>,
-    pub args: Option<Vec<String>>,
-    #[serde_as(as = "Option<Vec<EnvVarDef>>")]
-    #[serde(default)]
-    pub env: Option<Vec<EnvVar>>,
-}
+implement_serde_as!(
+    FetchStepFilesGlob,
+    FetchStepFilesGlobDef,
+    "FetchStepFilesGlobDef"
+);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// FetchStepMqtt
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#fetchstepmqtt-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[serde_as]
 #[skip_serializing_none]
@@ -520,29 +580,32 @@ pub struct FetchStepMqttDef {
     pub topics: Vec<MqttTopicSubscription>,
 }
 
+implement_serde_as!(FetchStepMqtt, FetchStepMqttDef, "FetchStepMqttDef");
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// FetchStepUrl
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#fetchstepurl-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 #[serde_as]
 #[skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(remote = "FetchStepEthereumLogs")]
+#[serde(remote = "FetchStepUrl")]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct FetchStepEthereumLogsDef {
-    pub chain_id: Option<u64>,
-    pub node_url: Option<String>,
-    pub filter: Option<String>,
-    pub signature: Option<String>,
+pub struct FetchStepUrlDef {
+    pub url: String,
+    #[serde_as(as = "Option<EventTimeSourceDef>")]
+    #[serde(default)]
+    pub event_time: Option<EventTimeSource>,
+    #[serde_as(as = "Option<SourceCachingDef>")]
+    #[serde(default)]
+    pub cache: Option<SourceCaching>,
+    #[serde_as(as = "Option<Vec<RequestHeaderDef>>")]
+    #[serde(default)]
+    pub headers: Option<Vec<RequestHeader>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(remote = "SourceOrdering")]
-#[serde(deny_unknown_fields)]
-pub enum SourceOrderingDef {
-    #[serde(alias = "byEventTime", alias = "byeventtime")]
-    ByEventTime,
-    #[serde(alias = "byName", alias = "byname")]
-    ByName,
-}
-
-implement_serde_as!(SourceOrdering, SourceOrderingDef, "SourceOrderingDef");
+implement_serde_as!(FetchStepUrl, FetchStepUrlDef, "FetchStepUrlDef");
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // MergeStrategy
@@ -563,21 +626,11 @@ pub enum MergeStrategyDef {
 }
 
 implement_serde_as!(MergeStrategy, MergeStrategyDef, "MergeStrategyDef");
-implement_serde_as!(
-    MergeStrategyAppend,
-    MergeStrategyAppendDef,
-    "MergeStrategyAppendDef"
-);
-implement_serde_as!(
-    MergeStrategyLedger,
-    MergeStrategyLedgerDef,
-    "MergeStrategyLedgerDef"
-);
-implement_serde_as!(
-    MergeStrategySnapshot,
-    MergeStrategySnapshotDef,
-    "MergeStrategySnapshotDef"
-);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// MergeStrategyAppend
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#mergestrategyappend-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[serde_as]
 #[skip_serializing_none]
@@ -585,6 +638,17 @@ implement_serde_as!(
 #[serde(remote = "MergeStrategyAppend")]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct MergeStrategyAppendDef {}
+
+implement_serde_as!(
+    MergeStrategyAppend,
+    MergeStrategyAppendDef,
+    "MergeStrategyAppendDef"
+);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// MergeStrategyLedger
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#mergestrategyledger-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[serde_as]
 #[skip_serializing_none]
@@ -595,6 +659,17 @@ pub struct MergeStrategyLedgerDef {
     pub primary_key: Vec<String>,
 }
 
+implement_serde_as!(
+    MergeStrategyLedger,
+    MergeStrategyLedgerDef,
+    "MergeStrategyLedgerDef"
+);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// MergeStrategySnapshot
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#mergestrategysnapshot-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 #[serde_as]
 #[skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -604,6 +679,12 @@ pub struct MergeStrategySnapshotDef {
     pub primary_key: Vec<String>,
     pub compare_columns: Option<Vec<String>>,
 }
+
+implement_serde_as!(
+    MergeStrategySnapshot,
+    MergeStrategySnapshotDef,
+    "MergeStrategySnapshotDef"
+);
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // MetadataBlock
@@ -742,12 +823,11 @@ pub enum PrepStepDef {
 }
 
 implement_serde_as!(PrepStep, PrepStepDef, "PrepStepDef");
-implement_serde_as!(
-    PrepStepDecompress,
-    PrepStepDecompressDef,
-    "PrepStepDecompressDef"
-);
-implement_serde_as!(PrepStepPipe, PrepStepPipeDef, "PrepStepPipeDef");
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// PrepStepDecompress
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#prepstepdecompress-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[serde_as]
 #[skip_serializing_none]
@@ -760,6 +840,17 @@ pub struct PrepStepDecompressDef {
     pub sub_path: Option<String>,
 }
 
+implement_serde_as!(
+    PrepStepDecompress,
+    PrepStepDecompressDef,
+    "PrepStepDecompressDef"
+);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// PrepStepPipe
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#prepsteppipe-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 #[serde_as]
 #[skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -769,21 +860,7 @@ pub struct PrepStepPipeDef {
     pub command: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(remote = "CompressionFormat")]
-#[serde(deny_unknown_fields)]
-pub enum CompressionFormatDef {
-    #[serde(alias = "gzip")]
-    Gzip,
-    #[serde(alias = "zip")]
-    Zip,
-}
-
-implement_serde_as!(
-    CompressionFormat,
-    CompressionFormatDef,
-    "CompressionFormatDef"
-);
+implement_serde_as!(PrepStepPipe, PrepStepPipeDef, "PrepStepPipeDef");
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // RawQueryRequest
@@ -827,51 +904,11 @@ pub enum RawQueryResponseDef {
 }
 
 implement_serde_as!(RawQueryResponse, RawQueryResponseDef, "RawQueryResponseDef");
-implement_serde_as!(
-    RawQueryResponseProgress,
-    RawQueryResponseProgressDef,
-    "RawQueryResponseProgressDef"
-);
-implement_serde_as!(
-    RawQueryResponseSuccess,
-    RawQueryResponseSuccessDef,
-    "RawQueryResponseSuccessDef"
-);
-implement_serde_as!(
-    RawQueryResponseInvalidQuery,
-    RawQueryResponseInvalidQueryDef,
-    "RawQueryResponseInvalidQueryDef"
-);
-implement_serde_as!(
-    RawQueryResponseInternalError,
-    RawQueryResponseInternalErrorDef,
-    "RawQueryResponseInternalErrorDef"
-);
 
-#[serde_as]
-#[skip_serializing_none]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(remote = "RawQueryResponseProgress")]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct RawQueryResponseProgressDef {}
-
-#[serde_as]
-#[skip_serializing_none]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(remote = "RawQueryResponseSuccess")]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct RawQueryResponseSuccessDef {
-    pub num_records: u64,
-}
-
-#[serde_as]
-#[skip_serializing_none]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(remote = "RawQueryResponseInvalidQuery")]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct RawQueryResponseInvalidQueryDef {
-    pub message: String,
-}
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// RawQueryResponseInternalError
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#rawqueryresponseinternalerror-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[serde_as]
 #[skip_serializing_none]
@@ -882,6 +919,70 @@ pub struct RawQueryResponseInternalErrorDef {
     pub message: String,
     pub backtrace: Option<String>,
 }
+
+implement_serde_as!(
+    RawQueryResponseInternalError,
+    RawQueryResponseInternalErrorDef,
+    "RawQueryResponseInternalErrorDef"
+);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// RawQueryResponseInvalidQuery
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#rawqueryresponseinvalidquery-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[serde_as]
+#[skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "RawQueryResponseInvalidQuery")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct RawQueryResponseInvalidQueryDef {
+    pub message: String,
+}
+
+implement_serde_as!(
+    RawQueryResponseInvalidQuery,
+    RawQueryResponseInvalidQueryDef,
+    "RawQueryResponseInvalidQueryDef"
+);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// RawQueryResponseProgress
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#rawqueryresponseprogress-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[serde_as]
+#[skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "RawQueryResponseProgress")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct RawQueryResponseProgressDef {}
+
+implement_serde_as!(
+    RawQueryResponseProgress,
+    RawQueryResponseProgressDef,
+    "RawQueryResponseProgressDef"
+);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// RawQueryResponseSuccess
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#rawqueryresponsesuccess-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[serde_as]
+#[skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "RawQueryResponseSuccess")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct RawQueryResponseSuccessDef {
+    pub num_records: u64,
+}
+
+implement_serde_as!(
+    RawQueryResponseSuccess,
+    RawQueryResponseSuccessDef,
+    "RawQueryResponseSuccessDef"
+);
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ReadStep
@@ -910,21 +1011,11 @@ pub enum ReadStepDef {
 }
 
 implement_serde_as!(ReadStep, ReadStepDef, "ReadStepDef");
-implement_serde_as!(ReadStepCsv, ReadStepCsvDef, "ReadStepCsvDef");
-implement_serde_as!(ReadStepJson, ReadStepJsonDef, "ReadStepJsonDef");
-implement_serde_as!(ReadStepNdJson, ReadStepNdJsonDef, "ReadStepNdJsonDef");
-implement_serde_as!(ReadStepGeoJson, ReadStepGeoJsonDef, "ReadStepGeoJsonDef");
-implement_serde_as!(
-    ReadStepNdGeoJson,
-    ReadStepNdGeoJsonDef,
-    "ReadStepNdGeoJsonDef"
-);
-implement_serde_as!(
-    ReadStepEsriShapefile,
-    ReadStepEsriShapefileDef,
-    "ReadStepEsriShapefileDef"
-);
-implement_serde_as!(ReadStepParquet, ReadStepParquetDef, "ReadStepParquetDef");
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ReadStepCsv
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#readstepcsv-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[serde_as]
 #[skip_serializing_none]
@@ -944,14 +1035,12 @@ pub struct ReadStepCsvDef {
     pub timestamp_format: Option<String>,
 }
 
-#[serde_as]
-#[skip_serializing_none]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(remote = "ReadStepGeoJson")]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct ReadStepGeoJsonDef {
-    pub schema: Option<Vec<String>>,
-}
+implement_serde_as!(ReadStepCsv, ReadStepCsvDef, "ReadStepCsvDef");
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ReadStepEsriShapefile
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#readstepesrishapefile-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[serde_as]
 #[skip_serializing_none]
@@ -963,14 +1052,32 @@ pub struct ReadStepEsriShapefileDef {
     pub sub_path: Option<String>,
 }
 
+implement_serde_as!(
+    ReadStepEsriShapefile,
+    ReadStepEsriShapefileDef,
+    "ReadStepEsriShapefileDef"
+);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ReadStepGeoJson
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#readstepgeojson-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 #[serde_as]
 #[skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(remote = "ReadStepParquet")]
+#[serde(remote = "ReadStepGeoJson")]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct ReadStepParquetDef {
+pub struct ReadStepGeoJsonDef {
     pub schema: Option<Vec<String>>,
 }
+
+implement_serde_as!(ReadStepGeoJson, ReadStepGeoJsonDef, "ReadStepGeoJsonDef");
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ReadStepJson
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#readstepjson-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[serde_as]
 #[skip_serializing_none]
@@ -985,6 +1092,33 @@ pub struct ReadStepJsonDef {
     pub timestamp_format: Option<String>,
 }
 
+implement_serde_as!(ReadStepJson, ReadStepJsonDef, "ReadStepJsonDef");
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ReadStepNdGeoJson
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#readstepndgeojson-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[serde_as]
+#[skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "ReadStepNdGeoJson")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ReadStepNdGeoJsonDef {
+    pub schema: Option<Vec<String>>,
+}
+
+implement_serde_as!(
+    ReadStepNdGeoJson,
+    ReadStepNdGeoJsonDef,
+    "ReadStepNdGeoJsonDef"
+);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ReadStepNdJson
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#readstepndjson-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 #[serde_as]
 #[skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -997,14 +1131,23 @@ pub struct ReadStepNdJsonDef {
     pub timestamp_format: Option<String>,
 }
 
+implement_serde_as!(ReadStepNdJson, ReadStepNdJsonDef, "ReadStepNdJsonDef");
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ReadStepParquet
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#readstepparquet-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 #[serde_as]
 #[skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(remote = "ReadStepNdGeoJson")]
+#[serde(remote = "ReadStepParquet")]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct ReadStepNdGeoJsonDef {
+pub struct ReadStepParquetDef {
     pub schema: Option<Vec<String>>,
 }
+
+implement_serde_as!(ReadStepParquet, ReadStepParquetDef, "ReadStepParquetDef");
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // RequestHeader
@@ -1191,11 +1334,11 @@ pub enum SourceCachingDef {
 }
 
 implement_serde_as!(SourceCaching, SourceCachingDef, "SourceCachingDef");
-implement_serde_as!(
-    SourceCachingForever,
-    SourceCachingForeverDef,
-    "SourceCachingForeverDef"
-);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// SourceCachingForever
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#sourcecachingforever-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[serde_as]
 #[skip_serializing_none]
@@ -1203,6 +1346,29 @@ implement_serde_as!(
 #[serde(remote = "SourceCachingForever")]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SourceCachingForeverDef {}
+
+implement_serde_as!(
+    SourceCachingForever,
+    SourceCachingForeverDef,
+    "SourceCachingForeverDef"
+);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// SourceOrdering
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#sourceordering-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "SourceOrdering")]
+#[serde(deny_unknown_fields)]
+pub enum SourceOrderingDef {
+    #[serde(alias = "byEventTime", alias = "byeventtime")]
+    ByEventTime,
+    #[serde(alias = "byName", alias = "byname")]
+    ByName,
+}
+
+implement_serde_as!(SourceOrdering, SourceOrderingDef, "SourceOrderingDef");
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // SourceState
@@ -1271,7 +1437,11 @@ pub enum TransformDef {
 }
 
 implement_serde_as!(Transform, TransformDef, "TransformDef");
-implement_serde_as!(TransformSql, TransformSqlDef, "TransformSqlDef");
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// TransformSql
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#transformsql-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[serde_as]
 #[skip_serializing_none]
@@ -1289,6 +1459,8 @@ pub struct TransformSqlDef {
     #[serde(default)]
     pub temporal_tables: Option<Vec<TemporalTable>>,
 }
+
+implement_serde_as!(TransformSql, TransformSqlDef, "TransformSqlDef");
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // TransformInput
@@ -1396,26 +1568,52 @@ implement_serde_as!(
     TransformResponseDef,
     "TransformResponseDef"
 );
-implement_serde_as!(
-    TransformResponseProgress,
-    TransformResponseProgressDef,
-    "TransformResponseProgressDef"
-);
-implement_serde_as!(
-    TransformResponseSuccess,
-    TransformResponseSuccessDef,
-    "TransformResponseSuccessDef"
-);
-implement_serde_as!(
-    TransformResponseInvalidQuery,
-    TransformResponseInvalidQueryDef,
-    "TransformResponseInvalidQueryDef"
-);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// TransformResponseInternalError
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#transformresponseinternalerror-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[serde_as]
+#[skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "TransformResponseInternalError")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct TransformResponseInternalErrorDef {
+    pub message: String,
+    pub backtrace: Option<String>,
+}
+
 implement_serde_as!(
     TransformResponseInternalError,
     TransformResponseInternalErrorDef,
     "TransformResponseInternalErrorDef"
 );
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// TransformResponseInvalidQuery
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#transformresponseinvalidquery-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[serde_as]
+#[skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(remote = "TransformResponseInvalidQuery")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct TransformResponseInvalidQueryDef {
+    pub message: String,
+}
+
+implement_serde_as!(
+    TransformResponseInvalidQuery,
+    TransformResponseInvalidQueryDef,
+    "TransformResponseInvalidQueryDef"
+);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// TransformResponseProgress
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#transformresponseprogress-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[serde_as]
 #[skip_serializing_none]
@@ -1423,6 +1621,17 @@ implement_serde_as!(
 #[serde(remote = "TransformResponseProgress")]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct TransformResponseProgressDef {}
+
+implement_serde_as!(
+    TransformResponseProgress,
+    TransformResponseProgressDef,
+    "TransformResponseProgressDef"
+);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// TransformResponseSuccess
+// https://github.com/kamu-data/open-data-fabric/blob/master/open-data-fabric.md#transformresponsesuccess-schema
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[serde_as]
 #[skip_serializing_none]
@@ -1437,24 +1646,11 @@ pub struct TransformResponseSuccessDef {
     pub new_watermark: Option<DateTime<Utc>>,
 }
 
-#[serde_as]
-#[skip_serializing_none]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(remote = "TransformResponseInvalidQuery")]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct TransformResponseInvalidQueryDef {
-    pub message: String,
-}
-
-#[serde_as]
-#[skip_serializing_none]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(remote = "TransformResponseInternalError")]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct TransformResponseInternalErrorDef {
-    pub message: String,
-    pub backtrace: Option<String>,
-}
+implement_serde_as!(
+    TransformResponseSuccess,
+    TransformResponseSuccessDef,
+    "TransformResponseSuccessDef"
+);
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Watermark

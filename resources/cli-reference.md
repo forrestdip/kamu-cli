@@ -70,6 +70,10 @@ Add a new dataset or modify an existing one
 * `--replace` — Delete and re-add datasets that already exist
 * `--stdin` — Read manifests from standard input
 * `--name <N>` — Overrides the name in a loaded manifest
+* `--visibility <VIS>` — Changing the visibility of the added dataset
+
+  Possible values: `private`, `public`
+
 
 This command creates a new dataset from the provided DatasetSnapshot manifest.
 
@@ -567,7 +571,7 @@ Authenticates with a remote ODF server interactively
 
 Performs non-interactive login to a remote Kamu server via OAuth provider token
 
-**Usage:** `kamu login oauth [OPTIONS] <PROVIDER> <ACCESS_TOKEN> [SERVER]`
+**Usage:** `kamu login oauth <PROVIDER> <ACCESS_TOKEN> [SERVER]`
 
 **Arguments:**
 
@@ -575,27 +579,19 @@ Performs non-interactive login to a remote Kamu server via OAuth provider token
 * `<ACCESS_TOKEN>` — OAuth provider access token
 * `<SERVER>` — ODF backend server URL (defaults to kamu.dev)
 
-**Options:**
-
-* `--user` — Store access token in the user home folder rather than in the workspace
-
 
 
 ## `kamu login password`
 
 Performs non-interactive login to a remote Kamu server via login and password
 
-**Usage:** `kamu login password [OPTIONS] <LOGIN> <PASSWORD> [SERVER]`
+**Usage:** `kamu login password <LOGIN> <PASSWORD> [SERVER]`
 
 **Arguments:**
 
 * `<LOGIN>` — Specify user name
 * `<PASSWORD>` — Specify password
 * `<SERVER>` — ODF backend server URL (defaults to kamu.dev)
-
-**Options:**
-
-* `--user` — Store access token in the user home folder rather than in the workspace
 
 
 
@@ -685,6 +681,10 @@ Pull new data into the datasets
 * `--set-watermark <TIME>` — Injects a manual watermark into the dataset to signify that no data is expected to arrive with event time that precedes it
 * `-f`, `--force` — Overwrite local version with remote, even if revisions have diverged
 * `--reset-derivatives-on-diverged-input` — Run hard compaction of derivative dataset if transformation failed due to root dataset compaction
+* `--visibility <VIS>` — Changing the visibility of the pulled dataset(s)
+
+  Possible values: `private`, `public`
+
 
 Pull is a multi-functional command that lets you update a local dataset. Depending on the parameters and the types of datasets involved it can be used to:
 - Run polling ingest to pull data into a root dataset from an external source
@@ -745,8 +745,6 @@ Push local data into a repository
 * `--to <REM>` — Remote alias or a URL to push to
 * `-f`, `--force` — Overwrite remote version with local, even if revisions have diverged
 * `--visibility <VIS>` — Changing the visibility of the initially pushed dataset(s)
-
-  Default value: `private`
 
   Possible values: `private`, `public`
 

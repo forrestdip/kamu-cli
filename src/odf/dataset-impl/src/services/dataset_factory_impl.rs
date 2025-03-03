@@ -10,9 +10,9 @@
 use std::sync::Arc;
 
 use dill::*;
-#[cfg(any(feature = "http", feature = "s3"))]
+#[cfg(feature = "http")]
 use internal_error::InternalError;
-#[cfg(any(feature = "http", feature = "lfs", feature = "s3"))]
+#[cfg(any(feature = "http", feature = "lfs"))]
 use internal_error::{ErrorIntoInternal, ResultIntoInternal};
 use odf_dataset::*;
 #[cfg(any(feature = "http", feature = "lfs", feature = "s3"))]
@@ -28,7 +28,7 @@ use odf_storage_lfs::*;
 #[cfg(feature = "s3")]
 use odf_storage_s3::*;
 #[cfg(feature = "s3")]
-use s3_utils::S3Context;
+use s3_utils::{S3Context, S3Metrics};
 use url::Url;
 
 #[cfg(feature = "lfs")]
@@ -43,6 +43,8 @@ pub struct DatasetFactoryImpl {
     ipfs_gateway: IpfsGateway,
     #[cfg(feature = "http")]
     access_token_resolver: Arc<dyn OdfServerAccessTokenResolver>,
+    #[cfg(feature = "s3")]
+    maybe_s3_metrics: Option<Arc<S3Metrics>>,
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -63,6 +65,28 @@ type DatasetImplLocalFS = DatasetImpl<
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#[cfg(feature = "s3")]
+#[component(pub)]
+#[interface(dyn DatasetFactory)]
+impl DatasetFactoryImpl {
+    #[allow(clippy::needless_pass_by_value)]
+    #[allow(unused_variables)]
+    pub fn new(
+        ipfs_gateway: IpfsGateway,
+        access_token_resolver: Arc<dyn OdfServerAccessTokenResolver>,
+        maybe_s3_metrics: Option<Arc<S3Metrics>>,
+    ) -> Self {
+        Self {
+            #[cfg(feature = "http")]
+            ipfs_gateway,
+            #[cfg(feature = "http")]
+            access_token_resolver,
+            maybe_s3_metrics,
+        }
+    }
+}
+
+#[cfg(not(feature = "s3"))]
 #[component(pub)]
 #[interface(dyn DatasetFactory)]
 impl DatasetFactoryImpl {
@@ -79,7 +103,9 @@ impl DatasetFactoryImpl {
             access_token_resolver,
         }
     }
+}
 
+impl DatasetFactoryImpl {
     #[cfg(feature = "lfs")]
     pub fn get_local_fs(layout: DatasetLayout) -> DatasetImplLocalFS {
         DatasetImpl::new(
@@ -142,16 +168,22 @@ impl DatasetFactoryImpl {
 
     /// Creates new dataset proxy for an S3 URL
     ///
-    /// WARNING: This function will create a new [S3Context] that will do
-    /// credential resolution from scratch which can be very expensive. If you
-    /// already have an established [S3Context] use
-    /// [DatasetFactoryImpl::get_s3_from_context()] function instead.
+    /// WARNING: This function will create a new [`S3Context`] that will do
+    /// credential resolution from scratch which can be very expensive.
     #[cfg(feature = "s3")]
-    pub async fn get_s3_from_url(base_url: Url) -> Result<impl Dataset, InternalError> {
-        // TODO: We should ensure optimal credential reuse. Perhaps in future we should
-        // create a cache of S3Contexts keyed by an endpoint.
-        let s3_context = S3Context::from_url(&base_url).await;
-        Ok(DatasetImpl::new(
+    pub async fn get_s3_from_url(
+        base_url: Url,
+        maybe_s3_metrics: Option<Arc<S3Metrics>>,
+    ) -> impl Dataset {
+        // TODO: PERF: We should ensure optimal credential reuse.
+        //             Perhaps in future we should create a cache of S3Contexts keyed
+        //             by an endpoint.
+        let mut s3_context = S3Context::from_url(&base_url).await;
+        if let Some(metrics) = maybe_s3_metrics {
+            s3_context = s3_context.with_metrics(metrics);
+        }
+
+        DatasetImpl::new(
             MetadataChainImpl::new(
                 MetadataBlockRepositoryCachingInMem::new(MetadataBlockRepositoryImpl::new(
                     ObjectRepositoryS3Sha3::new(s3_context.sub_context("blocks/")),
@@ -164,7 +196,7 @@ impl DatasetFactoryImpl {
             ObjectRepositoryS3Sha3::new(s3_context.sub_context("checkpoints/")),
             NamedObjectRepositoryS3::new(s3_context.into_sub_context("info/")),
             base_url,
-        ))
+        )
     }
 
     #[cfg(feature = "http")]
@@ -338,7 +370,7 @@ impl DatasetFactory for DatasetFactoryImpl {
             }
             #[cfg(feature = "s3")]
             "s3" | "s3+http" | "s3+https" => {
-                let ds = Self::get_s3_from_url(url.clone()).await?;
+                let ds = Self::get_s3_from_url(url.clone(), self.maybe_s3_metrics.clone()).await;
                 Ok(Arc::new(ds))
             }
             _ => Err(UnsupportedProtocolError {

@@ -12,7 +12,9 @@ use std::sync::Arc;
 
 use kamu::domain::*;
 use kamu_datasets::{
+    CreateDatasetFromSnapshotError,
     CreateDatasetFromSnapshotUseCase,
+    CreateDatasetResult,
     CreateDatasetUseCaseOptions,
     DeleteDatasetUseCase,
 };
@@ -34,7 +36,6 @@ pub struct AddCommand {
     stdin: bool,
     dataset_visibility: odf::DatasetVisibility,
     output_config: Arc<OutputConfig>,
-    tenancy_config: TenancyConfig,
     confirm_delete_service: Arc<ConfirmDeleteService>,
 }
 
@@ -49,7 +50,7 @@ impl AddCommand {
         recursive: bool,
         replace: bool,
         stdin: bool,
-        dataset_visibility: odf::DatasetVisibility,
+        maybe_dataset_visibility: Option<odf::DatasetVisibility>,
         output_config: Arc<OutputConfig>,
         tenancy_config: TenancyConfig,
         confirm_delete_service: Arc<ConfirmDeleteService>,
@@ -58,6 +59,9 @@ impl AddCommand {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
+        let dataset_visibility =
+            maybe_dataset_visibility.unwrap_or_else(|| tenancy_config.default_dataset_visibility());
+
         Self {
             resource_loader,
             dataset_registry,
@@ -70,7 +74,6 @@ impl AddCommand {
             stdin,
             dataset_visibility,
             output_config,
-            tenancy_config,
             confirm_delete_service,
         }
     }
@@ -157,7 +160,7 @@ impl AddCommand {
         create_options: CreateDatasetUseCaseOptions,
     ) -> Vec<(
         odf::DatasetAlias,
-        Result<odf::CreateDatasetResult, odf::dataset::CreateDatasetFromSnapshotError>,
+        Result<CreateDatasetResult, CreateDatasetFromSnapshotError>,
     )> {
         let snapshots_ordered =
             self.sort_snapshots_in_dependency_order(snapshots.into_iter().collect());
@@ -235,13 +238,6 @@ impl Command for AddCommand {
         {
             return Err(CLIError::usage_error(
                 "Name override can be used only when adding a single manifest",
-            ));
-        }
-        if self.tenancy_config == TenancyConfig::SingleTenant
-            && !self.dataset_visibility.is_private()
-        {
-            return Err(CLIError::usage_error(
-                "Only multi-tenant workspaces support non-private dataset visibility",
             ));
         }
 
@@ -327,7 +323,7 @@ impl Command for AddCommand {
                         eprintln!("{}: {}", console::style("Added").green(), id);
                     }
                 }
-                Err(odf::dataset::CreateDatasetFromSnapshotError::NameCollision(_)) => {
+                Err(CreateDatasetFromSnapshotError::NameCollision(_)) => {
                     if !self.output_config.quiet {
                         eprintln!(
                             "{}: {}: Already exists",

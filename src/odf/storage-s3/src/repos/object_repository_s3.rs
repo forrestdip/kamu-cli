@@ -20,7 +20,7 @@ use bytes::Bytes;
 use internal_error::{ErrorIntoInternal, ResultIntoInternal};
 use odf_metadata::*;
 use odf_storage::*;
-use s3_utils::S3Context;
+use s3_utils::{GetObjectOptions, PutObjectOptions, S3Context};
 use url::Url;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -74,6 +74,7 @@ where
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#[common_macros::method_names_consts]
 #[async_trait]
 impl<D, const C: u32> ObjectRepository for ObjectRepositoryS3<D, C>
 where
@@ -84,7 +85,7 @@ where
         ObjectRepositoryProtocol::S3
     }
 
-    #[tracing::instrument(level = "debug", skip_all, fields(%hash))]
+    #[tracing::instrument(level = "debug", name = ObjectRepositoryS3_contains, skip_all, fields(%hash))]
     async fn contains(&self, hash: &Multihash) -> Result<bool, ContainsError> {
         let key = self.get_key(hash);
 
@@ -100,7 +101,7 @@ where
         }
     }
 
-    #[tracing::instrument(level = "debug", skip_all, fields(%hash))]
+    #[tracing::instrument(level = "debug", name = ObjectRepositoryS3_get_size, skip_all, fields(%hash))]
     async fn get_size(&self, hash: &Multihash) -> Result<u64, GetError> {
         let key = self.get_key(hash);
 
@@ -123,7 +124,7 @@ where
         }
     }
 
-    #[tracing::instrument(level = "debug", skip_all, fields(%hash))]
+    #[tracing::instrument(level = "debug", name = ObjectRepositoryS3_get_bytes, skip_all, fields(%hash))]
     async fn get_bytes(&self, hash: &Multihash) -> Result<Bytes, GetError> {
         use tokio::io::AsyncReadExt;
         let mut stream = self.get_stream(hash).await?;
@@ -134,7 +135,7 @@ where
         Ok(Bytes::from(data))
     }
 
-    #[tracing::instrument(level = "debug", skip_all, fields(%hash))]
+    #[tracing::instrument(level = "debug", name = ObjectRepositoryS3_get_stream, skip_all, fields(%hash))]
     async fn get_stream(&self, hash: &Multihash) -> Result<Box<AsyncReadObj>, GetError> {
         let key = self.get_key(hash);
 
@@ -180,19 +181,20 @@ where
     ) -> Result<GetExternalUrlResult, GetExternalUrlError> {
         let expires_in = opts.expiration.unwrap_or(DEFAULT_EXPIRES_IN);
 
-        let presigned_conf = PresigningConfig::builder()
+        let presigned_config = PresigningConfig::builder()
             .expires_in(expires_in.to_std().unwrap())
             .build()
             .expect("Invalid presigning config");
 
-        let expires_at = presigned_conf.start_time() + presigned_conf.expires();
+        let expires_at = presigned_config.start_time() + presigned_config.expires();
         let presigned_request = self
             .s3_context
-            .client()
-            .get_object()
-            .bucket(self.s3_context.bucket())
-            .key(self.get_key(hash))
-            .presigned(presigned_conf)
+            .get_object_presigned_request(
+                self.get_key(hash),
+                GetObjectOptions::builder()
+                    .presigned_config(presigned_config)
+                    .build(),
+            )
             .await
             .int_err()?;
         let presigned_request_url = Url::parse(presigned_request.uri()).int_err()?;
@@ -211,19 +213,20 @@ where
     ) -> Result<GetExternalUrlResult, GetExternalUrlError> {
         let expires_in = opts.expiration.unwrap_or(DEFAULT_EXPIRES_IN);
 
-        let presigned_conf = PresigningConfig::builder()
+        let presigned_config = PresigningConfig::builder()
             .expires_in(expires_in.to_std().unwrap())
             .build()
             .expect("Invalid presigning config");
 
-        let expires_at = presigned_conf.start_time() + presigned_conf.expires();
+        let expires_at = presigned_config.start_time() + presigned_config.expires();
         let presigned_request = self
             .s3_context
-            .client()
-            .put_object()
-            .bucket(self.s3_context.bucket())
-            .key(self.get_key(hash))
-            .presigned(presigned_conf)
+            .put_object_presigned_request(
+                self.get_key(hash),
+                PutObjectOptions::builder()
+                    .presigned_config(presigned_config)
+                    .build(),
+            )
             .await
             .int_err()?;
         let presigned_request_url = Url::parse(presigned_request.uri()).int_err()?;
@@ -235,7 +238,7 @@ where
         })
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "debug", name = ObjectRepositoryS3_insert_bytes, skip_all)]
     async fn insert_bytes<'a>(
         &'a self,
         data: &'a [u8],
@@ -269,7 +272,7 @@ where
         Ok(InsertResult { hash })
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "debug", name = ObjectRepositoryS3_insert_stream, skip_all)]
     async fn insert_stream<'a>(
         &'a self,
         src: Box<AsyncReadObj>,
@@ -301,7 +304,7 @@ where
         Ok(InsertResult { hash })
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "debug", name = ObjectRepositoryS3_insert_file_move, skip_all)]
     async fn insert_file_move<'a>(
         &'a self,
         src: &Path,
@@ -313,7 +316,7 @@ where
         Ok(insert_result)
     }
 
-    #[tracing::instrument(level = "debug", skip_all, fields(%hash))]
+    #[tracing::instrument(level = "debug", name = ObjectRepositoryS3_delete, skip_all, fields(%hash))]
     async fn delete(&self, hash: &Multihash) -> Result<(), DeleteError> {
         let key = self.get_key(hash);
 
@@ -328,3 +331,5 @@ where
         Ok(())
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

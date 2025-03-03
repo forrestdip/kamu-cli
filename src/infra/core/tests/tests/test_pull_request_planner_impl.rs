@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chrono::Utc;
+use futures::TryStreamExt;
 use kamu::domain::*;
 use kamu::testing::{BaseRepoHarness, *};
 use kamu::utils::ipfs_wrapper::IpfsClient;
@@ -20,6 +21,7 @@ use kamu::utils::simple_transfer_protocol::SimpleTransferProtocol;
 use kamu::*;
 use kamu_accounts::CurrentAccountSubject;
 use kamu_datasets_services::{
+    AppendDatasetMetadataBatchUseCaseImpl,
     CreateDatasetUseCaseImpl,
     DatasetEntryWriter,
     DependencyGraphWriter,
@@ -27,7 +29,7 @@ use kamu_datasets_services::{
     MockDependencyGraphWriter,
 };
 use messaging_outbox::DummyOutboxImpl;
-use odf::dataset::testing::create_test_dataset_fron_snapshot;
+use odf::dataset::testing::create_test_dataset_from_snapshot;
 use odf::dataset::{DatasetFactoryImpl, IpfsGateway};
 use odf::metadata::testing::MetadataFactory;
 
@@ -110,7 +112,7 @@ async fn create_graph(
     datasets: Vec<(odf::DatasetAlias, Vec<odf::DatasetAlias>)>,
 ) {
     for (dataset_alias, deps) in datasets {
-        create_test_dataset_fron_snapshot(
+        create_test_dataset_from_snapshot(
             dataset_registry,
             dataset_storage_unit,
             MetadataFactory::dataset_snapshot()
@@ -148,20 +150,43 @@ async fn create_graph_remote(
     datasets: Vec<(odf::DatasetAlias, Vec<odf::DatasetAlias>)>,
     to_import: Vec<odf::DatasetAlias>,
 ) -> tempfile::TempDir {
-    let tmp_repo_dir = tempfile::tempdir().unwrap();
+    // First, create a temporary managed repository, and fill it with datasets.
+    // It will have a unified id-based structure
+    let tmp_registry_dir = tempfile::tempdir().unwrap();
 
-    let remote_dataset_repo = Arc::new(DatasetStorageUnitLocalFs::new(
-        tmp_repo_dir.path().to_owned(),
-        Arc::new(CurrentAccountSubject::new_test()),
-        Arc::new(TenancyConfig::SingleTenant),
+    let tmp_storage_unit = Arc::new(odf::dataset::DatasetStorageUnitLocalFs::new(
+        tmp_registry_dir.path().to_owned(),
     ));
 
-    let dataset_registry = DatasetRegistrySoloUnitBridge::new(remote_dataset_repo.clone());
+    let tmp_dataset_registry = DatasetRegistrySoloUnitBridge::new(
+        tmp_storage_unit.clone(),
+        Arc::new(CurrentAccountSubject::new_test()),
+        Arc::new(TenancyConfig::SingleTenant),
+    );
 
-    create_graph(&dataset_registry, remote_dataset_repo.as_ref(), datasets).await;
+    create_graph(&tmp_dataset_registry, tmp_storage_unit.as_ref(), datasets).await;
 
+    // Now, let's organize a simple local FS remote repo by copying those datasets.
+    // Unlike unified structure, this one is single-tenant and name-based.
+    let tmp_repo_dir = tempfile::tempdir().unwrap();
+
+    {
+        let mut hdl_stream = tmp_dataset_registry.all_dataset_handles();
+        while let Some(hdl) = hdl_stream.try_next().await.unwrap() {
+            let src_path = tmp_registry_dir
+                .path()
+                .join(hdl.id.as_multibase().to_stack_string());
+            let src_dataset_layout = odf::dataset::DatasetLayout::new(src_path);
+
+            let dst_path = tmp_repo_dir.path().join(hdl.alias.dataset_name);
+            let dst_dataset_layout = odf::dataset::DatasetLayout::new(dst_path);
+
+            copy_dataset_files(&src_dataset_layout, &dst_dataset_layout).unwrap();
+        }
+    }
+
+    // Register a remote repository pointing to this formed directory
     let tmp_repo_name = odf::RepoName::new_unchecked(remote_repo_name);
-
     harness
         .remote_repo_reg
         .add_repository(
@@ -170,19 +195,15 @@ async fn create_graph_remote(
         )
         .unwrap();
 
+    // Start syncing with main repository
     for import_alias in to_import {
+        let remote_alias = import_alias.as_remote_alias(tmp_repo_name.clone());
         harness
             .sync_service
             .sync(
                 harness
                     .sync_request_builder
-                    .build_sync_request(
-                        import_alias
-                            .as_remote_alias(tmp_repo_name.clone())
-                            .into_any_ref(),
-                        import_alias.into_any_ref(),
-                        true,
-                    )
+                    .build_sync_request(remote_alias.as_any_ref(), import_alias.as_any_ref(), true)
                     .await
                     .unwrap(),
                 SyncOptions::default(),
@@ -190,9 +211,42 @@ async fn create_graph_remote(
             )
             .await
             .unwrap();
+
+        // Add remote pull alias to E
+        harness
+            .get_remote_aliases(&import_alias.as_local_ref())
+            .await
+            .add(&remote_alias.as_remote_ref(), RemoteAliasKind::Pull)
+            .await
+            .unwrap();
     }
 
     tmp_repo_dir
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+fn copy_folder_recursively(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    if src.exists() {
+        std::fs::create_dir_all(dst)?;
+        let copy_options = fs_extra::dir::CopyOptions::new().content_only(true);
+        fs_extra::dir::copy(src, dst, &copy_options).unwrap();
+    }
+    Ok(())
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+fn copy_dataset_files(
+    src_layout: &odf::dataset::DatasetLayout,
+    dst_layout: &odf::dataset::DatasetLayout,
+) -> std::io::Result<()> {
+    // Don't copy `info`
+    copy_folder_recursively(&src_layout.blocks_dir, &dst_layout.blocks_dir)?;
+    copy_folder_recursively(&src_layout.checkpoints_dir, &dst_layout.checkpoints_dir)?;
+    copy_folder_recursively(&src_layout.data_dir, &dst_layout.data_dir)?;
+    copy_folder_recursively(&src_layout.refs_dir, &dst_layout.refs_dir)?;
+    Ok(())
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -397,6 +451,10 @@ async fn test_pull_batching_complex_with_remote() {
         .expect_create_dataset_node()
         .times(1)
         .returning(|_| Ok(()));
+    mock_dependency_graph_writer
+        .expect_update_dataset_node_dependencies()
+        .times(1)
+        .returning(|_, _, _| Ok(()));
 
     let harness = PullTestHarness::new(
         TenancyConfig::SingleTenant,
@@ -715,6 +773,104 @@ async fn test_sync_from_url_only_multi_tenant_case() {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#[tokio::test]
+async fn test_sync_from_url_same_id_different_aliases() {
+    let mut mock_dataset_entry_writer = MockDatasetEntryWriter::new();
+    mock_dataset_entry_writer
+        .expect_create_entry()
+        .times(1)
+        .returning(|_, _, _| Ok(()));
+
+    let mut mock_dependency_graph_writer = MockDependencyGraphWriter::new();
+    mock_dependency_graph_writer
+        .expect_create_dataset_node()
+        .times(1)
+        .returning(|_| Ok(()));
+
+    let harness = PullTestHarness::new(
+        TenancyConfig::SingleTenant,
+        mock_dataset_entry_writer,
+        mock_dependency_graph_writer,
+    );
+
+    let _remote_tmp_dir = create_graph_remote(
+        "kamu.dev",
+        &harness,
+        vec![(n!("bar"), names![])],
+        names!("bar"),
+    )
+    .await;
+
+    let res = harness
+        .pull_with_requests(
+            vec![PullRequest::Remote(PullRequestRemote {
+                maybe_local_alias: Some(n!("foo")),
+                remote_ref: rr!("kamu.dev/bar"),
+            })],
+            PullOptions::default(),
+        )
+        .await;
+    assert!(res.is_err());
+    let responses = res.err().unwrap();
+    assert_eq!(1, responses.len());
+    assert_matches!(
+        responses.first().unwrap().result,
+        Err(PullError::SaveUnderDifferentAlias(ref diff_alias))
+            if diff_alias.as_str() == "bar"
+    );
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[tokio::test]
+async fn test_sync_from_same_url_different_accounts() {
+    let mut mock_dataset_entry_writer = MockDatasetEntryWriter::new();
+    mock_dataset_entry_writer
+        .expect_create_entry()
+        .times(1)
+        .returning(|_, _, _| Ok(()));
+
+    let mut mock_dependency_graph_writer = MockDependencyGraphWriter::new();
+    mock_dependency_graph_writer
+        .expect_create_dataset_node()
+        .times(1)
+        .returning(|_| Ok(()));
+
+    let harness = PullTestHarness::new(
+        TenancyConfig::MultiTenant,
+        mock_dataset_entry_writer,
+        mock_dependency_graph_writer,
+    );
+
+    let _remote_tmp_dir = create_graph_remote(
+        "kamu.dev",
+        &harness,
+        vec![(n!("bar"), names![])],
+        names!("bar"),
+    )
+    .await;
+
+    let res = harness
+        .pull_with_requests(
+            vec![PullRequest::Remote(PullRequestRemote {
+                maybe_local_alias: Some(n!("foo")),
+                remote_ref: rr!("kamu.dev/bar"),
+            })],
+            PullOptions::default(),
+        )
+        .await;
+    assert!(res.is_err());
+    let responses = res.err().unwrap();
+    assert_eq!(1, responses.len());
+    assert_matches!(
+        responses.first().unwrap().result,
+        Err(PullError::SaveUnderDifferentAlias(ref diff_alias))
+            if diff_alias.as_str() == "kamu/bar"
+    );
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 #[oop::extend(BaseRepoHarness, base_repo_harness)]
 struct PullTestHarness {
     base_repo_harness: BaseRepoHarness,
@@ -764,6 +920,7 @@ impl PullTestHarness {
             .bind::<dyn DatasetEntryWriter, MockDatasetEntryWriter>()
             .add_value(mock_dependency_graph_writer)
             .bind::<dyn DependencyGraphWriter, MockDependencyGraphWriter>()
+            .add::<AppendDatasetMetadataBatchUseCaseImpl>()
             .build();
 
         Self {

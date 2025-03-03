@@ -130,7 +130,9 @@ impl KamuCliPuppetExt for KamuCliPuppet {
 
         let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
 
-        serde_json::from_str(stdout).unwrap()
+        let mut res: Vec<DatasetRecord> = serde_json::from_str(stdout).unwrap();
+        res.sort_by(|a, b| a.name.cmp(&b.name));
+        res
     }
 
     async fn add_dataset(
@@ -452,6 +454,7 @@ pub struct DatasetRecord {
     pub blocks: usize,
     pub size: usize,
     pub watermark: Option<DateTime<Utc>>,
+    pub visibility: Option<odf::DatasetVisibility>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -500,13 +503,20 @@ fn assert_execute_command_result<'a>(
     if let Some(expected_stderr_items) = maybe_expected_stderr {
         let stderr = std::str::from_utf8(&command_result.get_output().stderr).unwrap();
 
+        let mut stderr_search_index = 0;
         for expected_stderr_item_re in expected_stderr_items {
             let re = Regex::new(expected_stderr_item_re).unwrap();
 
-            assert!(
-                re.is_match(stderr),
-                "Expected found regex match:\n'{re}'\nUnexpected output:\n{stderr}",
-            );
+            if let Some(mat) = re.find(&stderr[stderr_search_index..]) {
+                stderr_search_index += mat.end();
+            } else {
+                assert!(
+                    re.is_match(stderr),
+                    "Expected found regex match:\n'{re}'\nUnexpected output:\n{stderr}",
+                );
+
+                panic!("Expected found regex match:\n'{re}'\nUnexpected output:\n{stderr}",);
+            }
         }
     }
 }

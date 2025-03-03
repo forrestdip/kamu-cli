@@ -18,7 +18,6 @@ use kamu::domain::auth::DatasetActionNotEnoughPermissionsError;
 use kamu::domain::*;
 use kamu::utils::datasets_filtering::filter_datasets_by_any_pattern;
 use kamu_accounts::CurrentAccountSubject;
-use odf::AccessError;
 
 use super::{BatchError, CLIError, Command};
 use crate::output::OutputConfig;
@@ -42,6 +41,7 @@ pub struct PullCommand {
     add_aliases: bool,
     force: bool,
     reset_derivatives_on_diverged_input: bool,
+    new_dataset_visibility: odf::DatasetVisibility,
 }
 
 impl PullCommand {
@@ -60,10 +60,14 @@ impl PullCommand {
         add_aliases: bool,
         force: bool,
         reset_derivatives_on_diverged_input: bool,
+        maybe_new_dataset_visibility: Option<odf::DatasetVisibility>,
     ) -> Self
     where
         I: IntoIterator<Item = odf::DatasetRefAnyPattern>,
     {
+        let new_dataset_visibility = maybe_new_dataset_visibility
+            .unwrap_or_else(|| tenancy_config.default_dataset_visibility());
+
         Self {
             pull_dataset_use_case,
             dataset_registry,
@@ -79,14 +83,15 @@ impl PullCommand {
             add_aliases,
             force,
             reset_derivatives_on_diverged_input,
+            new_dataset_visibility,
         }
     }
 
     async fn sync_from(
         &self,
         listener: Option<Arc<dyn PullMultiListener>>,
+        local_name: &odf::DatasetName,
     ) -> Result<Vec<PullResponse>, CLIError> {
-        let local_name = self.as_name.as_ref().unwrap();
         let remote_ref = match self.refs[0].as_dataset_ref_any() {
             Some(dataset_ref_any) => dataset_ref_any.as_remote_ref(|_| true).map_err(|_| {
                 CLIError::usage_error("When using --as reference should point to a remote dataset")
@@ -114,6 +119,10 @@ impl PullCommand {
                 )],
                 PullOptions {
                     add_aliases: self.add_aliases,
+                    sync_options: SyncOptions {
+                        dataset_visibility: self.new_dataset_visibility,
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
                 listener,
@@ -155,6 +164,7 @@ impl PullCommand {
             },
             sync_options: SyncOptions {
                 force: self.force,
+                dataset_visibility: self.new_dataset_visibility,
                 ..SyncOptions::default()
             },
         };
@@ -191,8 +201,8 @@ impl PullCommand {
         &self,
         listener: Option<Arc<dyn PullMultiListener>>,
     ) -> Result<Vec<PullResponse>, CLIError> {
-        if self.as_name.is_some() {
-            self.sync_from(listener).await
+        if let Some(local_name) = &self.as_name {
+            self.sync_from(listener, local_name).await
         } else {
             let current_account_name = self.current_account_subject.account_name();
             self.pull_multi(listener, current_account_name).await
@@ -975,12 +985,12 @@ impl SyncListener for PrettySyncProgress {
 
 fn sanitize_pull_error(original_pull_error: PullError) -> PullError {
     // Tricky way...
-    if let PullError::Access(AccessError::Forbidden(forbidden_error)) = &original_pull_error
+    if let PullError::Access(odf::AccessError::Forbidden(forbidden_error)) = &original_pull_error
         && let Some(permissions_error) =
             forbidden_error.downcast_ref::<DatasetActionNotEnoughPermissionsError>()
     {
         let dataset_ref = permissions_error.dataset_ref.clone();
-        return PullError::NotFound(odf::dataset::DatasetNotFoundError { dataset_ref });
+        return PullError::NotFound(odf::DatasetNotFoundError { dataset_ref });
     };
 
     // No miracle happened, giving away the error that was

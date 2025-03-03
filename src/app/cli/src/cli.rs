@@ -65,6 +65,10 @@ pub struct Cli {
     #[arg(long, short = 'a', hide = true)]
     pub account: Option<String>,
 
+    /// Specifies the hashing mode
+    #[arg(long, value_enum, hide = true)]
+    pub password_hashing_mode: Option<PasswordHashingMode>,
+
     /// E2E test interface: file path from which socket bound address will be
     /// read out
     #[arg(long, hide = true)]
@@ -72,6 +76,14 @@ pub struct Cli {
 
     #[command(subcommand)]
     pub command: Command,
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum PasswordHashingMode {
+    Production,
+    Testing,
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -174,14 +186,8 @@ pub struct Add {
     pub name: Option<odf::DatasetAlias>,
 
     /// Changing the visibility of the added dataset
-    #[arg(
-        long,
-        value_name = "VIS",
-        value_enum,
-        default_value = "private",
-        hide = true
-    )]
-    pub visibility: parsers::DatasetVisibility,
+    #[arg(long, value_name = "VIS", value_enum)]
+    pub visibility: Option<parsers::DatasetVisibility>,
 
     /// Dataset manifest reference(s) (path, or URL)
     #[arg()]
@@ -711,10 +717,6 @@ pub enum LoginSubCommand {
 /// token
 #[derive(Debug, clap::Args)]
 pub struct LoginOauth {
-    /// Store access token in the user home folder rather than in the workspace
-    #[arg(long)]
-    pub user: bool,
-
     /// Name of the OAuth provider, i.e. 'github'
     #[arg(index = 1)]
     pub provider: String,
@@ -732,10 +734,6 @@ pub struct LoginOauth {
 /// password
 #[derive(Debug, clap::Args)]
 pub struct LoginPassword {
-    /// Store access token in the user home folder rather than in the workspace
-    #[arg(long)]
-    pub user: bool,
-
     /// Specify user name
     #[arg(index = 1)]
     pub login: String,
@@ -904,6 +902,10 @@ pub struct Pull {
     /// Local or remote dataset reference(s)
     #[arg(value_parser = parsers::dataset_ref_pattern_any)]
     pub dataset: Option<Vec<odf::DatasetRefAnyPattern>>,
+
+    /// Changing the visibility of the pulled dataset(s)
+    #[arg(long, value_name = "VIS", value_enum)]
+    pub visibility: Option<parsers::DatasetVisibility>,
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -959,8 +961,8 @@ pub struct Push {
     pub force: bool,
 
     /// Changing the visibility of the initially pushed dataset(s)
-    #[arg(long, value_name = "VIS", value_enum, default_value = "private")]
-    pub visibility: parsers::DatasetVisibility,
+    #[arg(long, value_name = "VIS", value_enum)]
+    pub visibility: Option<parsers::DatasetVisibility>,
 
     /// Local or remote dataset reference(s)
     #[arg(value_parser = parsers::dataset_ref_pattern)]

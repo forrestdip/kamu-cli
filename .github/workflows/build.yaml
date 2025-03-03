@@ -44,6 +44,32 @@ jobs:
           command: clippy
           args: --workspace --all-targets -- -D warnings
 
+  lint_codegen:
+    name: Lint / Codegen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: kamu-data/kamu-cli
+          path: kamu-cli
+      - uses: actions/checkout@v4
+        with:
+          repository: open-data-fabric/open-data-fabric
+          path: open-data-fabric
+      # TODO: Unclear how to make this action look for rust-toolchain in a subdirectory
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt
+      # TODO: Generate all artifacts (requires containerizing tools like flatc and protoc)
+      - name: Generate artifacts
+        run: |
+          cd kamu-cli
+          make codegen-odf-flatbuffers-schema
+          make codegen-graphql
+      - name: Check generated files
+        run: cd kamu-cli && git diff && git diff-index --quiet HEAD
+
   lint_deps:
     name: Lint / Dependencies
     runs-on: ubuntu-latest
@@ -65,7 +91,7 @@ jobs:
             runs-on: ubuntu-latest
             cargo-flags: --profile ci --features ingest-ftp,web-ui
             nextest-flags: --cargo-profile ci --features ingest-ftp,web-ui
-            nextest-exclusions-main-set-tests: -E '!(test(::database::) | test(::spark::)| test(::flink::))'
+            nextest-exclusions-main-set-tests: -E '!(test(::database::) | test(::spark::) | test(::flink::))'
             nextest-exclusions-database-set-part: ''
             container-runtime: podman
             ipfs: true

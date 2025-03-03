@@ -23,13 +23,15 @@ use kamu_core::{
     RunInfoDir,
     TenancyConfig,
 };
-use odf::dataset::testing::create_test_dataset_fron_snapshot;
+use kamu_datasets::CreateDatasetResult;
+use odf::dataset::testing::create_test_dataset_from_snapshot;
+use odf::dataset::DatasetStorageUnitLocalFs;
 use odf::metadata::serde::flatbuffers::FlatbuffersMetadataBlockSerializer;
 use odf::metadata::serde::MetadataBlockSerializer;
 use odf::metadata::testing::MetadataFactory;
 use time_source::{SystemTimeSource, SystemTimeSourceDefault};
 
-use crate::{DatasetRegistrySoloUnitBridge, DatasetStorageUnitLocalFs};
+use crate::DatasetRegistrySoloUnitBridge;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -114,37 +116,39 @@ impl BaseRepoHarness {
     pub async fn check_dataset_exists(
         &self,
         alias: &odf::DatasetAlias,
-    ) -> Result<(), odf::dataset::GetDatasetError> {
+    ) -> Result<(), odf::DatasetRefUnresolvedError> {
         self.dataset_registry
             .get_dataset_by_ref(&alias.as_local_ref())
             .await?;
         Ok(())
     }
 
-    pub async fn create_root_dataset(&self, alias: &odf::DatasetAlias) -> odf::CreateDatasetResult {
+    pub async fn create_root_dataset(&self, alias: &odf::DatasetAlias) -> CreateDatasetResult {
         let snapshot = MetadataFactory::dataset_snapshot()
             .name(alias.clone())
             .kind(odf::DatasetKind::Root)
             .push_event(MetadataFactory::set_polling_source().build())
             .build();
 
-        create_test_dataset_fron_snapshot(
+        let store_result = create_test_dataset_from_snapshot(
             self.dataset_registry.as_ref(),
             self.dataset_storage_unit_writer.as_ref(),
             snapshot,
-            self.did_generator.generate_dataset_id(),
+            self.did_generator.generate_dataset_id().0,
             self.system_time_source.now(),
         )
         .await
-        .unwrap()
+        .unwrap();
+
+        CreateDatasetResult::from_stored(store_result, alias.clone())
     }
 
     pub async fn create_derived_dataset(
         &self,
         alias: &odf::DatasetAlias,
         input_dataset_refs: Vec<odf::DatasetRef>,
-    ) -> odf::CreateDatasetResult {
-        create_test_dataset_fron_snapshot(
+    ) -> CreateDatasetResult {
+        let store_result = create_test_dataset_from_snapshot(
             self.dataset_registry.as_ref(),
             self.dataset_storage_unit_writer.as_ref(),
             MetadataFactory::dataset_snapshot()
@@ -156,11 +160,13 @@ impl BaseRepoHarness {
                         .build(),
                 )
                 .build(),
-            self.did_generator.generate_dataset_id(),
+            self.did_generator.generate_dataset_id().0,
             self.system_time_source.now(),
         )
         .await
-        .unwrap()
+        .unwrap();
+
+        CreateDatasetResult::from_stored(store_result, alias.clone())
     }
 
     pub async fn num_blocks(&self, target: ResolvedDataset) -> usize {

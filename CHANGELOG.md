@@ -11,22 +11,104 @@ Recommendation: for ease of reading, use the following order:
 - Fixed
 -->
 
-## [Unreleased]
+## Unreleased
+### Changed
+- Simple Transfer Protocol & Smart Transfer Protocol use `AppendDatasetMetadataBatchUseCase`
+- SQLite: protection against database locking, in case of parallel execution of `kamu` commands.
+  - Based on `journal_mode=WAL`
+
+## [0.226.3] - 2025-02-27
+### Changed
+- `kamu login`: only one argument `--user` (root) is left, other arguments (from subcommands) are removed
+### Fixed
+- Demo Jupyter start-up failure
+
+## [0.226.2] - 2025-02-26
+### Added
+- New `FlowSystemConfig` structure in `CLIConfig` which allows 
+    to configure `flow_agent` and `task_agent` services 
+    with next options `awaiting_step_secs` and `mandatory_throttling_period_secs`
+### Fixed
+- Single-tenant mode:
+  - `kamu add`: public default visibility, unless otherwise specified
+  - `kamu pull`: public new default visibility, unless otherwise specified
+- Simple Transfer Protocol:
+  - Respect the visibility option
+  - Updating the dependency graph during block processing
+
+## [0.226.1] - 2025-02-25
+### Changed
+- New Jupyter image 0.7.1, which can handle v6 workspace layout
+
+## [0.226.0] - 2025-02-24
+### Added
+- Externally configurable Argon2 hashing mode (minimal settings to speedup e2e tests)
+### Changed
+- Unified dataset repository format:
+  - both LFS and S3, regardless of tenancy config, now organize storage folders solely by dataset ID
+  - workspace migration to new repository format (v6) is fully automatic
+  - the role of "info/alias" file was reduced only for recovery purposes, 
+      the dataset alias resolutions now happen in database only
+  - ODF storage unit implementations (LFS, S3) only deal with dataset identifiers:
+    - no more dependency on accounts or tenancy configuration
+    - S3 cache now considers identifiers of stored datasets only
+    - moved them to ODF crate
+    - reading HEAD is a must for storage iteration
+    - removing HEAD is a first step of dataset deletion
+  - `kamu-datasets` domain now has own error and result structures layer, separate from ODF basics
+  - Rename operation does not touch a storage unit, became solely a database operation
+  - workspace version checking now takes startup job dependencies into account
+### Fixed
+- Less linear search in in-mem entry repository
+
+## [0.225.3] - 2025-02-24
+### Fixed
+- E2E: `repo-tests` crate again contains the `kamu-cli` dependency, but as an optional one
+  - This way we can correctly reuse the tests in the `kamu-node` repository without affecting the build time
+  - It also fixes `make sqlx-prepate` developer command
+
+## [0.225.2] - 2025-02-24
+### Added
+- Added prometheus metrics for AWS SDK S3 calls
+### Changed
+- E2E: make `repo-tests` crate independent from `kamu-cli` crate
+
+## [0.225.1] - 2025-02-23
+### Fixed
+- Fixed arrow `BinaryView` incorrectly being treated as incompatible with `Binary` fields during dataset schema compatibility checks (#1096)
+
+## [0.225.0] - 2025-02-20
+### Added
+- Added [common-macros](src/utils/common-macros) crate containing macros of general use
+  - `kamu list`: display dataset visibility in multi-tenant
+  - `kamu pull`: added `--visibility private|public` argument to specify the created dataset visibility
+### Changed
+- Improved/added trace for repositories & GQL to contain not only the method name but also the structure name
+### Fixed
+- Restoring OData API tolerance to trailing slashes
+- OData API: fixed crash when accessing private dataset
+
+## [0.224.0] - 2025-02-18
+### Added
+- The usage of local database (SQLite) is activated by default for all single tenant workspaces
 ### Fixed
 - Improved error message for SQL parsing method for queries which includes invalid or reserved keywords
+- Fixed false-positive panic ("There cannot be predefined users in a single-tenant workspace") 
+    if a `kamu` subcommand that doesn't require workspace found a multiuser `.kamuconfig`
+  - For example, before attempting to initialize a workspace or attempting to invoke autocomplete in shell 
 
 ## [0.223.0] - 2025-02-13
 ### Added
 - Increased test coverage of the code responsible for access checks
 ### Changed
 - Restructured responsibilities between core and dataset domains upon key dataset CRUD use cases:
-   - 8 use cases moved from `core` to `kamu-datasets` domain
-   - no longer using outbox for "Renamed" and "DependenciesUpdated" events in datasets, 
-     these became internal aspect inside `kamu-datasets` domain
-   - simplified creation and commit result structures as they no longer transport new dependencies
-   - revised many integration tests:
-       - flow system no longer uses real datasets
-       - HTTP and GQL use real accounts and dataset entries
+  - 8 use cases moved from `core` to `kamu-datasets` domain
+  - no longer using outbox for "Renamed" and "DependenciesUpdated" events in datasets, 
+      these became internal aspect inside `kamu-datasets` domain
+  - simplified creation and commit result structures as they no longer transport new dependencies
+  - revised many integration tests:
+    - flow system no longer uses real datasets
+    - HTTP and GQL use real accounts and dataset entries
 - Moved several account-related routines from `AuthenticationService` to `AccountService`, 
   the authentication services has focus only on JWT token and login flows
 - Upgraded to `datafusion v45` (#1063)
@@ -37,7 +119,7 @@ Recommendation: for ease of reading, use the following order:
 
 ## [0.222.0] - 2025-02-06
 ### Added
-- New `AccessTokenLifecycleMessage` outbox message which produced during access token   creation
+- New `AccessTokenLifecycleMessage` outbox message which produced during access token creation
 ### Changed
 - `kamu pull` command now can be called with passing `<remote_repo>/<dataset_name>` arg
   and pull url will be combined automatically 

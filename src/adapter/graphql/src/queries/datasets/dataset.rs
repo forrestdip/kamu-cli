@@ -23,6 +23,7 @@ pub struct Dataset {
     dataset_handle: odf::DatasetHandle,
 }
 
+#[common_macros::method_names_consts(const_value_prefix = "GQL: ")]
 #[Object]
 impl Dataset {
     #[graphql(skip)]
@@ -93,8 +94,9 @@ impl Dataset {
     }
 
     /// Returns the kind of dataset (Root or Derivative)
+    #[tracing::instrument(level = "info", name = Dataset_kind, skip_all)]
     async fn kind(&self, ctx: &Context<'_>) -> Result<DatasetKind> {
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle).await;
         let summary = resolved_dataset
             .get_summary(odf::dataset::GetSummaryOpts::default())
             .await
@@ -103,10 +105,11 @@ impl Dataset {
     }
 
     /// Returns the visibility of dataset
+    #[tracing::instrument(level = "info", name = Dataset_visibility, skip_all)]
     async fn visibility(&self, ctx: &Context<'_>) -> Result<DatasetVisibilityOutput> {
         let rebac_svc = from_catalog_n!(ctx, dyn kamu_auth_rebac::RebacService);
 
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle).await;
         let properties = rebac_svc
             .get_dataset_properties(resolved_dataset.get_id())
             .await
@@ -146,8 +149,9 @@ impl Dataset {
 
     // TODO: PERF: Avoid traversing the entire chain
     /// Creation time of the first metadata block in the chain
+    #[tracing::instrument(level = "info", name = Dataset_created_at, skip_all)]
     async fn created_at(&self, ctx: &Context<'_>) -> Result<DateTime<Utc>> {
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle).await;
 
         use odf::dataset::MetadataChainExt as _;
         Ok(resolved_dataset
@@ -161,8 +165,9 @@ impl Dataset {
     }
 
     /// Creation time of the most recent metadata block in the chain
+    #[tracing::instrument(level = "info", name = Dataset_last_updated_at, skip_all)]
     async fn last_updated_at(&self, ctx: &Context<'_>) -> Result<DateTime<Utc>> {
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle).await;
 
         use odf::dataset::MetadataChainExt as __;
         Ok(resolved_dataset
@@ -173,6 +178,7 @@ impl Dataset {
     }
 
     /// Permissions of the current user
+    #[tracing::instrument(level = "info", name = Dataset_permissions, skip_all)]
     async fn permissions(&self, ctx: &Context<'_>) -> Result<DatasetPermissions> {
         use kamu_core::auth;
 

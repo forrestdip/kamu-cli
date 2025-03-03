@@ -18,6 +18,7 @@ pub struct DatasetData {
     dataset_handle: odf::DatasetHandle,
 }
 
+#[common_macros::method_names_consts(const_value_prefix = "GQL: ")]
 #[Object]
 impl DatasetData {
     const DEFAULT_TAIL_LIMIT: u64 = 20;
@@ -28,9 +29,9 @@ impl DatasetData {
     }
 
     /// Total number of records in this dataset
-    #[tracing::instrument(level = "info", skip_all)]
+    #[tracing::instrument(level = "info", name = DatasetData_num_records_total, skip_all)]
     async fn num_records_total(&self, ctx: &Context<'_>) -> Result<u64> {
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle).await;
         let summary = resolved_dataset
             .get_summary(odf::dataset::GetSummaryOpts::default())
             .await
@@ -40,9 +41,9 @@ impl DatasetData {
 
     /// An estimated size of data on disk not accounting for replication or
     /// caching
-    #[tracing::instrument(level = "info", skip_all)]
+    #[tracing::instrument(level = "info", name = DatasetData_estimated_size, skip_all)]
     async fn estimated_size(&self, ctx: &Context<'_>) -> Result<u64> {
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle).await;
         let summary = resolved_dataset
             .get_summary(odf::dataset::GetSummaryOpts::default())
             .await
@@ -64,7 +65,7 @@ impl DatasetData {
     /// )
     /// order by offset
     /// ```
-    #[tracing::instrument(level = "info", skip_all)]
+    #[tracing::instrument(level = "info", name = DatasetData_tail, skip_all, fields(?skip, ?limit, ?data_format, ?schema_format))]
     async fn tail(
         &self,
         ctx: &Context<'_>,

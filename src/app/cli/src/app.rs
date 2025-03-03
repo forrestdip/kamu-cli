@@ -105,6 +105,12 @@ pub async fn run(workspace_layout: WorkspaceLayout, args: cli::Cli) -> Result<()
     } else {
         TenancyConfig::SingleTenant
     };
+    let is_in_workspace = workspace_svc.is_in_workspace();
+    let workspace_status = match (maybe_init_command.is_some(), is_in_workspace) {
+        (false, false) => WorkspaceStatus::NoWorkspace,
+        (true, false) => WorkspaceStatus::AboutToBeCreated(tenancy_config),
+        (_, true) => WorkspaceStatus::Created(tenancy_config),
+    };
 
     let config = load_config(&workspace_layout);
     let current_account = AccountService::current_account_indication(
@@ -115,9 +121,7 @@ pub async fn run(workspace_layout: WorkspaceLayout, args: cli::Cli) -> Result<()
 
     prepare_run_dir(&workspace_layout.run_info_dir);
 
-    let is_init_command = maybe_init_command.is_some();
-    let app_database_config =
-        get_app_database_config(&workspace_layout, &config, tenancy_config, is_init_command);
+    let app_database_config = get_app_database_config(&workspace_layout, &config, workspace_status);
     let (database_config, maybe_temp_database_path) = app_database_config.into_inner();
     let maybe_db_connection_settings = database_config
         .as_ref()
@@ -134,13 +138,7 @@ pub async fn run(workspace_layout: WorkspaceLayout, args: cli::Cli) -> Result<()
             is_e2e_testing,
         );
 
-        // TODO: Use SQLite database in single-tenant
-        //       https://github.com/kamu-data/kamu-cli/issues/981
-        //
-        //       After implementing this ticket, we need to use "is_init_command"
-        //       not "init_multi_tenant_workspace" here
-        let is_indexing_needed = init_multi_tenant_workspace || workspace_svc.is_in_workspace();
-        if is_indexing_needed {
+        if workspace_status.is_indexing_needed() {
             base_catalog_builder.add::<kamu_datasets_services::DatasetEntryIndexer>();
             base_catalog_builder.add::<kamu_datasets_services::DependencyGraphIndexer>();
             base_catalog_builder.add::<kamu_auth_rebac_services::RebacIndexer>();
@@ -176,7 +174,8 @@ pub async fn run(workspace_layout: WorkspaceLayout, args: cli::Cli) -> Result<()
         register_config_in_catalog(
             &config,
             &mut base_catalog_builder,
-            tenancy_config,
+            workspace_status,
+            args.password_hashing_mode,
             is_e2e_testing,
         );
 
@@ -223,76 +222,87 @@ pub async fn run(workspace_layout: WorkspaceLayout, args: cli::Cli) -> Result<()
 
     let is_workspace_upgrade_needed = workspace_svc.is_upgrade_needed()?;
 
-    if workspace_svc.is_in_workspace() && !is_workspace_upgrade_needed {
+    if is_in_workspace && !is_workspace_upgrade_needed {
         // Evict cache
         cli_catalog.get_one::<GcService>()?.evict_cache()?;
     }
 
-    // Startup initializations
-    run_startup_initializations(&cli_catalog).await?;
+    // Some extra steps are necessary for commands that require workspace
+    let mut command_result: Result<(), CLIError> = if cli_commands::command_needs_workspace(&args) {
+        if !workspace_svc.is_in_workspace() {
+            Err(CLIError::usage_error_from(NotInWorkspace))
+        } else if is_workspace_upgrade_needed {
+            Err(CLIError::usage_error_from(WorkspaceUpgradeRequired))
+        } else if current_account.is_explicit() && tenancy_config == TenancyConfig::SingleTenant {
+            Err(CLIError::usage_error_from(NotInMultiTenantWorkspace))
+        } else {
+            Ok(())
+        }
+    } else {
+        Ok(())
+    };
 
-    let is_transactional =
-        maybe_db_connection_settings.is_some() && cli_commands::command_needs_transaction(&args);
-    let work_catalog = maybe_server_catalog.as_ref().unwrap_or(&base_catalog);
+    if command_result.is_ok() && cli_commands::command_needs_startup_jobs(&args) {
+        command_result = run_startup_initializations(&cli_catalog).await;
+    }
 
-    let mut command_result: Result<(), CLIError> = maybe_transactional(
-        is_transactional,
-        cli_catalog.clone(),
-        |maybe_transactional_cli_catalog: Catalog| async move {
-            let mut command =
-                cli_commands::get_command(work_catalog, &maybe_transactional_cli_catalog, args)?;
+    if command_result.is_ok() {
+        let is_transactional = maybe_db_connection_settings.is_some()
+            && cli_commands::command_needs_transaction(&args);
+        let work_catalog = maybe_server_catalog.as_ref().unwrap_or(&base_catalog);
 
-            if command.needs_workspace() && !workspace_svc.is_in_workspace() {
-                Err(CLIError::usage_error_from(NotInWorkspace))?;
-            }
-            if command.needs_workspace() && is_workspace_upgrade_needed {
-                Err(CLIError::usage_error_from(WorkspaceUpgradeRequired))?;
-            }
-            if current_account.is_explicit() && tenancy_config == TenancyConfig::SingleTenant {
-                Err(CLIError::usage_error_from(NotInMultiTenantWorkspace))?;
-            }
+        command_result = maybe_transactional(
+            is_transactional,
+            cli_catalog.clone(),
+            |maybe_transactional_cli_catalog: Catalog| async move {
+                let mut command = cli_commands::get_command(
+                    work_catalog,
+                    &maybe_transactional_cli_catalog,
+                    args,
+                )?;
 
-            command.validate_args().await?;
+                command.validate_args().await?;
 
-            let command_name = command.name();
+                let command_name = command.name();
 
-            command
-                .run()
-                .instrument(tracing::info_span!(
-                    "Running command",
-                    %is_transactional,
-                    %command_name,
-                ))
-                .await
-        },
-    )
-    .instrument(tracing::debug_span!("app::run_command"))
-    .await;
-
-    command_result = command_result
-        // If successful, then process the Outbox messages while they are present
-        .and_then_async(|_| async {
-            let outbox_agent = cli_catalog.get_one::<messaging_outbox::OutboxAgent>()?;
-            outbox_agent
-                .run_while_has_tasks()
-                .await
-                .map_err(CLIError::critical)
-        })
-        .instrument(tracing::debug_span!(
-            "Consume accumulated the Outbox messages"
-        ))
-        .await
-        // If we had a temporary directory, we move the database from it to the expected
-        // location.
-        .and_then_async(|_| async {
-            move_initial_database_to_workspace_if_needed(
-                &workspace_layout,
-                maybe_temp_database_path,
-            )
-            .await
-            .map_int_err(CLIError::critical)
-        })
+                command
+                    .run()
+                    .instrument(tracing::info_span!(
+                        "Running command",
+                        %is_transactional,
+                        %command_name,
+                    ))
+                    .await
+            },
+        )
+        .instrument(tracing::debug_span!("app::run_command"))
         .await;
+
+        command_result = command_result
+            // If successful, then process the Outbox messages while they are present
+            .and_then_async(|_| async {
+                let outbox_agent = cli_catalog.get_one::<messaging_outbox::OutboxAgent>()?;
+                outbox_agent
+                    .run_while_has_tasks()
+                    .await
+                    .map_err(CLIError::critical)
+            })
+            .instrument(tracing::debug_span!(
+                "Consume accumulated the Outbox messages"
+            ))
+            .await
+            // If we had a temporary directory, we move the database from it to the expected
+            // location.
+            .and_then_async(|_| async {
+                move_initial_database_to_workspace_if_needed(
+                    &workspace_layout,
+                    maybe_temp_database_path,
+                )
+                .await
+                .map_int_err(CLIError::critical)
+            })
+            .await;
+    }
 
     match &command_result {
         Ok(()) => {
@@ -387,10 +397,11 @@ pub fn configure_base_catalog(
     b.add::<DidGeneratorDefault>();
 
     b.add_builder(
-        DatasetStorageUnitLocalFs::builder().with_root(workspace_layout.datasets_dir.clone()),
+        odf::dataset::DatasetStorageUnitLocalFs::builder()
+            .with_root(workspace_layout.datasets_dir.clone()),
     );
-    b.bind::<dyn odf::DatasetStorageUnit, DatasetStorageUnitLocalFs>();
-    b.bind::<dyn odf::DatasetStorageUnitWriter, DatasetStorageUnitLocalFs>();
+    b.bind::<dyn odf::DatasetStorageUnit, odf::dataset::DatasetStorageUnitLocalFs>();
+    b.bind::<dyn odf::DatasetStorageUnitWriter, odf::dataset::DatasetStorageUnitLocalFs>();
 
     b.add::<odf::dataset::DatasetFactoryImpl>();
 
@@ -496,6 +507,7 @@ pub fn configure_base_catalog(
 
     b.add::<DatabaseTransactionRunner>();
 
+    b.add::<kamu_auth_rebac_services::RebacDatasetLifecycleMessageConsumer>();
     b.add::<kamu_auth_rebac_services::RebacServiceImpl>();
     b.add_value(kamu_auth_rebac_services::DefaultAccountProperties { is_admin: false });
     b.add_value(kamu_auth_rebac_services::DefaultDatasetProperties {
@@ -512,10 +524,6 @@ pub fn configure_base_catalog(
             .unwrap(),
     );
     b.add::<kamu_adapter_flight_sql::KamuFlightSqlService>();
-
-    if tenancy_config == TenancyConfig::MultiTenant {
-        b.add::<kamu_auth_rebac_services::MultiTenantRebacDatasetLifecycleMessageConsumer>();
-    }
 
     b.add::<kamu_datasets_services::DatasetEntryServiceImpl>();
     b.add::<kamu_datasets_services::DependencyGraphServiceImpl>();
@@ -568,10 +576,6 @@ pub fn configure_server_catalog(base_catalog: &Catalog) -> CatalogBuilder {
 
     kamu_task_system_services::register_dependencies(&mut b);
 
-    b.add_value(kamu_flow_system_inmem::domain::FlowAgentConfig::new(
-        Duration::seconds(1),
-        Duration::minutes(1),
-    ));
     kamu_flow_system_services::register_dependencies(&mut b);
 
     b.add::<UploadServiceLocal>();
@@ -604,7 +608,7 @@ pub fn configure_server_catalog(base_catalog: &Catalog) -> CatalogBuilder {
 async fn run_startup_initializations(catalog: &Catalog) -> Result<(), CLIError> {
     let init_result = init_on_startup::run_startup_jobs(catalog)
         .await
-        .map_err(CLIError::critical);
+        .map_err(CLIError::failure);
 
     if let Err(e) = init_result {
         tracing::error!(
@@ -633,7 +637,8 @@ fn load_config(workspace_layout: &WorkspaceLayout) -> config::CLIConfig {
 pub fn register_config_in_catalog(
     config: &config::CLIConfig,
     catalog_builder: &mut CatalogBuilder,
-    tenancy_config: TenancyConfig,
+    workspace_status: WorkspaceStatus,
+    password_hashing_mode: Option<cli::PasswordHashingMode>,
     is_e2e_testing: bool,
 ) {
     let network_ns = config.engine.as_ref().unwrap().network_ns.unwrap();
@@ -641,11 +646,14 @@ pub fn register_config_in_catalog(
     // Register JupyterConfig used by some commands
     catalog_builder.add_value(config.frontend.as_ref().unwrap().jupyter.clone().unwrap());
 
+    // Container runtime configuration
     catalog_builder.add_value(ContainerRuntimeConfig {
         runtime: config.engine.as_ref().unwrap().runtime.unwrap(),
         network_ns,
     });
+    //
 
+    // Engine provisioner configuration
     catalog_builder.add_value(EngineProvisionerLocalConfig {
         max_concurrency: config.engine.as_ref().unwrap().max_concurrency,
         start_timeout: config
@@ -703,6 +711,7 @@ pub fn register_config_in_catalog(
             .clone()
             .unwrap(),
     });
+    //
 
     catalog_builder.add_value(config.source.as_ref().unwrap().to_infra_cfg());
     catalog_builder.add_value(
@@ -736,10 +745,13 @@ pub fn register_config_in_catalog(
             .to_infra_cfg(),
     );
 
+    // Identity configuration
     if let Some(identity_config) = config.identity.as_ref().unwrap().to_infra_cfg() {
         catalog_builder.add_value(identity_config);
     }
+    //
 
+    // IPFS configuration
     let ipfs_conf = config.protocol.as_ref().unwrap().ipfs.as_ref().unwrap();
 
     catalog_builder.add_value(odf::dataset::IpfsGateway {
@@ -747,7 +759,9 @@ pub fn register_config_in_catalog(
         pre_resolve_dnslink: ipfs_conf.pre_resolve_dnslink.unwrap(),
     });
     catalog_builder.add_value(kamu::utils::ipfs_wrapper::IpfsClient::default());
+    //
 
+    // Flight SQL configuration
     let flight_sql_conf = config
         .protocol
         .as_ref()
@@ -757,45 +771,57 @@ pub fn register_config_in_catalog(
         .unwrap();
     catalog_builder.add_value(flight_sql_conf.to_session_auth_config());
     catalog_builder.add_value(flight_sql_conf.to_session_caching_config());
+    //
 
-    if tenancy_config == TenancyConfig::MultiTenant {
-        let mut implicit_user_config = PredefinedAccountsConfig::new();
-        implicit_user_config.predefined.push(
-            AccountConfig::test_config_from_name(odf::AccountName::new_unchecked(
-                AccountService::default_account_name(TenancyConfig::MultiTenant).as_str(),
-            ))
-            .set_display_name(AccountService::default_user_name(
-                TenancyConfig::MultiTenant,
-            )),
-        );
-
-        if is_e2e_testing {
-            let e2e_user_config =
-                AccountConfig::test_config_from_name(odf::AccountName::new_unchecked("e2e-user"));
-
-            implicit_user_config.predefined.push(e2e_user_config);
-        }
-
-        use merge::Merge;
-        let mut user_config = config.users.clone().unwrap();
-        user_config.merge(implicit_user_config);
-        catalog_builder.add_value(user_config);
-    } else {
-        if let Some(users) = &config.users {
-            assert!(
-                users.predefined.is_empty(),
-                "There cannot be predefined users in a single-tenant workspace"
+    // Tenancy configuration
+    if let Some(tenancy_config) = workspace_status.into_tenancy_config() {
+        if tenancy_config == TenancyConfig::MultiTenant {
+            let mut implicit_user_config = PredefinedAccountsConfig::new();
+            implicit_user_config.predefined.push(
+                AccountConfig::test_config_from_name(odf::AccountName::new_unchecked(
+                    AccountService::default_account_name(TenancyConfig::MultiTenant).as_str(),
+                ))
+                .set_display_name(AccountService::default_user_name(
+                    TenancyConfig::MultiTenant,
+                )),
             );
+
+            if is_e2e_testing {
+                let e2e_user_config = AccountConfig::test_config_from_name(
+                    odf::AccountName::new_unchecked("e2e-user"),
+                );
+
+                implicit_user_config.predefined.push(e2e_user_config);
+            }
+
+            use merge::Merge;
+            let mut user_config = config.users.clone().unwrap();
+            user_config.merge(implicit_user_config);
+            catalog_builder.add_value(user_config);
+        } else {
+            if let Some(users) = &config.users {
+                assert!(
+                    users.predefined.is_empty(),
+                    "There cannot be predefined users in a single-tenant workspace"
+                );
+            }
+
+            catalog_builder.add_value(PredefinedAccountsConfig::single_tenant());
         }
-
-        catalog_builder.add_value(PredefinedAccountsConfig::single_tenant());
+    } else {
+        // No workspace
+        catalog_builder.add_value(PredefinedAccountsConfig::new());
     }
+    //
 
+    // Uploads configuration
     let uploads_config = config.uploads.as_ref().unwrap();
     catalog_builder.add_value(FileUploadLimitConfig::new_in_mb(
         uploads_config.max_file_size_in_mb.unwrap(),
     ));
+    //
 
+    // Dataset env vars configuration
     catalog_builder.add_value(config.dataset_env_vars.clone().unwrap());
 
     let dataset_env_vars_config = config.dataset_env_vars.as_ref().unwrap();
@@ -828,12 +854,65 @@ pub fn register_config_in_catalog(
             }
         }
     }
+    //
 
+    // Outbox configuration
     let outbox_config = config.outbox.as_ref().unwrap();
     catalog_builder.add_value(messaging_outbox::OutboxConfig::new(
         Duration::seconds(outbox_config.awaiting_step_secs.unwrap()),
         outbox_config.batch_size.unwrap(),
     ));
+    //
+
+    // Password hashing mode configuration
+    match password_hashing_mode {
+        Some(cli::PasswordHashingMode::Testing) => {
+            catalog_builder.add_value(kamu_accounts_services::PasswordHashingMode::Minimal);
+        }
+        Some(cli::PasswordHashingMode::Production) | None => {
+            catalog_builder.add_value(kamu_accounts_services::PasswordHashingMode::Default);
+        }
+    }
+    //
+
+    // Flow system configuration
+    let kamu_flow_system_config = config.flow_system.as_ref().unwrap();
+    let flow_agent_config = kamu_flow_system_config.flow_agent.as_ref().unwrap();
+
+    catalog_builder.add_value(kamu_flow_system_inmem::domain::FlowAgentConfig::new(
+        Duration::seconds(flow_agent_config.awaiting_step_secs.unwrap()),
+        Duration::seconds(flow_agent_config.mandatory_throttling_period_secs.unwrap()),
+    ));
+
+    let task_agent_config = kamu_flow_system_config.task_agent.as_ref().unwrap();
+    catalog_builder.add_value(kamu_task_system_inmem::domain::TaskAgentConfig::new(
+        Duration::seconds(task_agent_config.task_checking_interval_secs.unwrap()),
+    ));
+    //
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum WorkspaceStatus {
+    NoWorkspace,
+    AboutToBeCreated(TenancyConfig),
+    Created(TenancyConfig),
+}
+
+impl WorkspaceStatus {
+    fn into_tenancy_config(self) -> Option<TenancyConfig> {
+        match self {
+            WorkspaceStatus::NoWorkspace => None,
+            WorkspaceStatus::AboutToBeCreated(tenancy_config)
+            | WorkspaceStatus::Created(tenancy_config) => Some(tenancy_config),
+        }
+    }
+
+    fn is_indexing_needed(self) -> bool {
+        match self {
+            WorkspaceStatus::NoWorkspace => false,
+            WorkspaceStatus::AboutToBeCreated(_) | WorkspaceStatus::Created(_) => true,
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

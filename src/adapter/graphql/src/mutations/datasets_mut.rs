@@ -8,6 +8,7 @@
 // by the Apache License, Version 2.0.
 
 use kamu_core::DatasetRegistryExt;
+use kamu_datasets::CreateDatasetFromSnapshotError;
 
 use crate::mutations::DatasetMut;
 use crate::prelude::*;
@@ -20,9 +21,11 @@ pub struct DatasetsMut;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#[common_macros::method_names_consts(const_value_prefix = "GQL: ")]
 #[Object]
 impl DatasetsMut {
     /// Returns a mutable dataset by its ID
+    #[tracing::instrument(level = "info", name = DatasetsMut_by_id, skip_all, fields(%dataset_id))]
     async fn by_id(&self, ctx: &Context<'_>, dataset_id: DatasetID) -> Result<Option<DatasetMut>> {
         let dataset_registry = from_catalog_n!(ctx, dyn kamu_core::DatasetRegistry);
         let hdl = dataset_registry
@@ -32,6 +35,7 @@ impl DatasetsMut {
     }
 
     /// Creates a new empty dataset
+    #[tracing::instrument(level = "info", name = DatasetsMut_create_empty, skip_all)]
     #[graphql(guard = "LoggedInGuard::new()")]
     async fn create_empty(
         &self,
@@ -66,6 +70,7 @@ impl DatasetsMut {
     }
 
     /// Creates a new dataset from provided DatasetSnapshot manifest
+    #[tracing::instrument(level = "info", name = DatasetsMut_create_from_snapshot, skip_all)]
     #[graphql(guard = "LoggedInGuard::new()")]
     async fn create_from_snapshot(
         &self,
@@ -132,21 +137,19 @@ impl DatasetsMut {
                 let dataset = Dataset::from_ref(ctx, &result.dataset_handle.as_local_ref()).await?;
                 CreateDatasetFromSnapshotResult::Success(CreateDatasetResultSuccess { dataset })
             }
-            Err(odf::dataset::CreateDatasetFromSnapshotError::NameCollision(e)) => {
+            Err(CreateDatasetFromSnapshotError::NameCollision(e)) => {
                 CreateDatasetFromSnapshotResult::NameCollision(CreateDatasetResultNameCollision {
                     account_name: e.alias.account_name.map(Into::into),
                     dataset_name: e.alias.dataset_name.into(),
                 })
             }
-            Err(odf::dataset::CreateDatasetFromSnapshotError::RefCollision(e)) => {
-                return Err(e.int_err().into())
-            }
-            Err(odf::dataset::CreateDatasetFromSnapshotError::InvalidSnapshot(e)) => {
+            Err(CreateDatasetFromSnapshotError::RefCollision(e)) => return Err(e.int_err().into()),
+            Err(CreateDatasetFromSnapshotError::InvalidSnapshot(e)) => {
                 CreateDatasetFromSnapshotResult::InvalidSnapshot(
                     CreateDatasetResultInvalidSnapshot { message: e.reason },
                 )
             }
-            Err(odf::dataset::CreateDatasetFromSnapshotError::MissingInputs(e)) => {
+            Err(CreateDatasetFromSnapshotError::MissingInputs(e)) => {
                 CreateDatasetFromSnapshotResult::MissingInputs(CreateDatasetResultMissingInputs {
                     missing_inputs: e
                         .missing_inputs
@@ -155,7 +158,7 @@ impl DatasetsMut {
                         .collect(),
                 })
             }
-            Err(odf::dataset::CreateDatasetFromSnapshotError::Internal(e)) => return Err(e.into()),
+            Err(CreateDatasetFromSnapshotError::Internal(e)) => return Err(e.into()),
         };
 
         Ok(result)

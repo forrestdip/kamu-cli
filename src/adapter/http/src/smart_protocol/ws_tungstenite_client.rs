@@ -18,8 +18,11 @@ use kamu::utils::smart_transfer_protocol::{SmartTransferProtocolClient, Transfer
 use kamu_core::*;
 use kamu_datasets::{
     AppendDatasetMetadataBatchUseCase,
+    AppendDatasetMetadataBatchUseCaseOptions,
     CreateDatasetUseCase,
     CreateDatasetUseCaseOptions,
+    NameCollisionError,
+    SetRefCheckRefMode,
 };
 use odf::metadata::AsTypedBlock as _;
 use serde::de::DeserializeOwned;
@@ -331,7 +334,7 @@ impl WsSmartTransferProtocolClient {
                         })
                     }
                     DatasetPushObjectsTransferError::NameCollision(err) => {
-                        PushClientError::NameCollision(odf::dataset::NameCollisionError {
+                        PushClientError::NameCollision(NameCollisionError {
                             alias: err.dataset_alias,
                         })
                     }
@@ -567,9 +570,9 @@ impl SmartTransferProtocolClient for WsSmartTransferProtocolClient {
                 .await
             {
                 Ok(head) => Ok(Some(head)),
-                Err(odf::storage::GetRefError::NotFound(_)) => Ok(None),
-                Err(odf::storage::GetRefError::Access(e)) => Err(SyncError::Access(e)),
-                Err(odf::storage::GetRefError::Internal(e)) => Err(SyncError::Internal(e)),
+                Err(odf::GetRefError::NotFound(_)) => Ok(None),
+                Err(odf::GetRefError::Access(e)) => Err(SyncError::Access(e)),
+                Err(odf::GetRefError::Internal(e)) => Err(SyncError::Internal(e)),
             }?
         } else {
             None
@@ -689,16 +692,22 @@ impl SmartTransferProtocolClient for WsSmartTransferProtocolClient {
                     .await?;
             }
 
-            let dst_dataset = dst.clone();
-            let append_event = self
+            let append_dataset_metadata_batch_use_case = self
                 .catalog
                 .get_one::<dyn AppendDatasetMetadataBatchUseCase>()
                 .unwrap();
-            append_event
+            let dst_dataset = dst.clone();
+
+            append_dataset_metadata_batch_use_case
                 .execute(
                     dst_dataset.as_ref(),
-                    new_blocks,
-                    transfer_options.force_update_if_diverged,
+                    Box::new(new_blocks.into_iter()),
+                    AppendDatasetMetadataBatchUseCaseOptions {
+                        set_ref_check_ref_mode: Some(SetRefCheckRefMode::ForceUpdateIfDiverged(
+                            transfer_options.force_update_if_diverged,
+                        )),
+                        ..Default::default()
+                    },
                 )
                 .await
                 .int_err()?;
@@ -851,6 +860,7 @@ impl SmartTransferProtocolClient for WsSmartTransferProtocolClient {
                 tracing::debug!("Push process aborted with error: {}", e);
                 return Err(match e {
                     PushClientError::RefCollision(err) => SyncError::RefCollision(err),
+                    PushClientError::NameCollision(err) => SyncError::NameCollision(err),
                     _ => SyncError::Internal(e.int_err()),
                 });
             }

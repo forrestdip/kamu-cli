@@ -22,6 +22,8 @@ use kamu::utils::simple_transfer_protocol::SimpleTransferProtocol;
 use kamu::*;
 use kamu_core::auth::DatasetAction;
 use kamu_core::*;
+use kamu_datasets::CreateDatasetResult;
+use kamu_datasets_services::{AppendDatasetMetadataBatchUseCaseImpl, DependencyGraphServiceImpl};
 use odf::dataset::{DatasetFactoryImpl, IpfsGateway};
 use tempfile::TempDir;
 use url::Url;
@@ -370,6 +372,8 @@ impl PushUseCaseHarness {
             .add::<SimpleTransferProtocol>()
             .add_value(IpfsClient::default())
             .add_value(IpfsGateway::default())
+            .add::<AppendDatasetMetadataBatchUseCaseImpl>()
+            .add::<DependencyGraphServiceImpl>()
             .build();
 
         let use_case = catalog.get_one().unwrap();
@@ -394,10 +398,7 @@ impl PushUseCaseHarness {
         }
     }
 
-    async fn get_remote_aliases(
-        &self,
-        created: &odf::CreateDatasetResult,
-    ) -> Box<dyn RemoteAliases> {
+    async fn get_remote_aliases(&self, created: &CreateDatasetResult) -> Box<dyn RemoteAliases> {
         self.remote_aliases_registry
             .get_remote_aliases(&created.dataset_handle)
             .await

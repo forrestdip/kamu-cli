@@ -107,7 +107,7 @@ pub struct SyncOptions {
     /// Force synchronization, even if revisions have diverged
     pub force: bool,
 
-    /// Dataset visibility, in case of initial pushing
+    /// Dataset visibility, in case of initial pushing or pulling
     pub dataset_visibility: odf::DatasetVisibility,
 }
 
@@ -215,7 +215,9 @@ pub enum SyncError {
     #[error(transparent)]
     RefCollision(#[from] odf::dataset::RefCollisionError),
     #[error(transparent)]
-    CreateDatasetFailed(#[from] odf::dataset::CreateDatasetError),
+    NameCollision(#[from] kamu_datasets::NameCollisionError),
+    #[error(transparent)]
+    CreateDatasetFailed(#[from] kamu_datasets::CreateDatasetError),
     #[error(transparent)]
     UnsupportedProtocol(#[from] odf::dataset::UnsupportedProtocolError),
     #[error(transparent)]
@@ -235,7 +237,7 @@ pub enum SyncError {
     DestinationAhead(#[from] DestinationAheadError),
     #[error(transparent)]
     Corrupted(#[from] CorruptedSourceError),
-    #[error("odf::Dataset was updated concurrently")]
+    #[error("Dataset was updated concurrently")]
     UpdatedConcurrently(#[source] BoxedError),
     #[error(transparent)]
     Access(
@@ -269,7 +271,7 @@ pub enum IpfsAddError {
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Error, Clone, Eq, PartialEq, Debug)]
-#[error("odf::Dataset {dataset_ref} not found")]
+#[error("Dataset {dataset_ref} not found")]
 pub struct DatasetAnyRefUnresolvedError {
     pub dataset_ref: odf::DatasetRefAny,
 }
@@ -344,15 +346,15 @@ pub struct CorruptedSourceError {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-impl From<odf::dataset::GetDatasetError> for SyncError {
-    fn from(v: odf::dataset::GetDatasetError) -> Self {
+impl From<odf::DatasetRefUnresolvedError> for SyncError {
+    fn from(v: odf::DatasetRefUnresolvedError) -> Self {
         match v {
-            odf::dataset::GetDatasetError::NotFound(e) => {
+            odf::DatasetRefUnresolvedError::NotFound(e) => {
                 Self::DatasetNotFound(DatasetAnyRefUnresolvedError {
                     dataset_ref: e.dataset_ref.into(),
                 })
             }
-            odf::dataset::GetDatasetError::Internal(e) => Self::Internal(e),
+            odf::DatasetRefUnresolvedError::Internal(e) => Self::Internal(e),
         }
     }
 }
@@ -397,7 +399,7 @@ impl From<IpfsAddError> for SyncError {
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Error, Debug)]
-#[error("odf::Dataset storage type '{}' is unsupported for IPFS operations", url.scheme())]
+#[error("Dataset storage type '{}' is unsupported for IPFS operations", url.scheme())]
 pub struct UnsupportedIpfsStorageTypeError {
     pub url: Url,
 }

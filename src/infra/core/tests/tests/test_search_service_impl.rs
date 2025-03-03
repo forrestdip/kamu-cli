@@ -15,9 +15,13 @@ use kamu::testing::*;
 use kamu::utils::simple_transfer_protocol::SimpleTransferProtocol;
 use kamu::*;
 use kamu_accounts::CurrentAccountSubject;
-use kamu_datasets_services::CreateDatasetUseCaseImpl;
+use kamu_datasets_services::{
+    AppendDatasetMetadataBatchUseCaseImpl,
+    CreateDatasetUseCaseImpl,
+    DependencyGraphServiceImpl,
+};
 use messaging_outbox::DummyOutboxImpl;
-use odf::dataset::testing::create_test_dataset_fron_snapshot;
+use odf::dataset::testing::create_test_dataset_from_snapshot;
 use odf::dataset::{DatasetFactoryImpl, IpfsGateway};
 use odf::metadata::testing::MetadataFactory;
 use test_utils::LocalS3Server;
@@ -39,9 +43,9 @@ async fn do_test_search(tmp_workspace_dir: &Path, repo_url: Url) {
         .add::<SystemTimeSourceDefault>()
         .add_value(CurrentAccountSubject::new_test())
         .add_value(TenancyConfig::SingleTenant)
-        .add_builder(DatasetStorageUnitLocalFs::builder().with_root(datasets_dir))
-        .bind::<dyn odf::DatasetStorageUnit, DatasetStorageUnitLocalFs>()
-        .bind::<dyn odf::DatasetStorageUnitWriter, DatasetStorageUnitLocalFs>()
+        .add_builder(odf::dataset::DatasetStorageUnitLocalFs::builder().with_root(datasets_dir))
+        .bind::<dyn odf::DatasetStorageUnit, odf::dataset::DatasetStorageUnitLocalFs>()
+        .bind::<dyn odf::DatasetStorageUnitWriter, odf::dataset::DatasetStorageUnitLocalFs>()
         .add::<DatasetRegistrySoloUnitBridge>()
         .add::<auth::AlwaysHappyDatasetActionAuthorizer>()
         .add_value(RemoteRepositoryRegistryImpl::create(tmp_workspace_dir.join("repos")).unwrap())
@@ -59,6 +63,8 @@ async fn do_test_search(tmp_workspace_dir: &Path, repo_url: Url) {
         .add::<SearchServiceImpl>()
         .add::<CreateDatasetUseCaseImpl>()
         .add::<DummyOutboxImpl>()
+        .add::<AppendDatasetMetadataBatchUseCaseImpl>()
+        .add::<DependencyGraphServiceImpl>()
         .build();
 
     let did_generator = catalog.get_one::<dyn DidGenerator>().unwrap();
@@ -78,7 +84,7 @@ async fn do_test_search(tmp_workspace_dir: &Path, repo_url: Url) {
         .unwrap();
 
     // Add and sync dataset
-    create_test_dataset_fron_snapshot(
+    let _ = create_test_dataset_from_snapshot(
         dataset_registry.as_ref(),
         dataset_storage_unit_writer.as_ref(),
         MetadataFactory::dataset_snapshot()
@@ -86,7 +92,7 @@ async fn do_test_search(tmp_workspace_dir: &Path, repo_url: Url) {
             .kind(odf::DatasetKind::Root)
             .push_event(MetadataFactory::set_polling_source().build())
             .build(),
-        did_generator.generate_dataset_id(),
+        did_generator.generate_dataset_id().0,
         time_source.now(),
     )
     .await

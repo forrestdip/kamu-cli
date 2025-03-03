@@ -128,7 +128,10 @@ impl Command for LogCommand {
                 auth::DatasetActionUnauthorizedError::Internal(e) => CLIError::critical(e),
             })?;
 
-        let resolved_dataset = self.dataset_registry.get_dataset_by_handle(&dataset_handle);
+        let resolved_dataset = self
+            .dataset_registry
+            .get_dataset_by_handle(&dataset_handle)
+            .await;
 
         use odf::dataset::{MetadataChainExt, TryStreamExtExt};
 
@@ -326,7 +329,7 @@ impl AsciiRenderer {
             odf::MetadataEvent::Seed(e) => {
                 self.render_property(output, 0, "Kind", "Seed")?;
                 self.render_property(output, 0, "DatasetKind", format!("{:?}", e.dataset_kind))?;
-                self.render_property(output, 0, "odf::DatasetID", &e.dataset_id)?;
+                self.render_property(output, 0, "DatasetID", &e.dataset_id)?;
             }
             odf::MetadataEvent::SetAttachments(e) => {
                 self.render_property(output, 0, "Kind", "SetAttachments")?;

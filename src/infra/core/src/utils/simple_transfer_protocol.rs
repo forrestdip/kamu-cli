@@ -15,7 +15,15 @@ use futures::{stream, Future, StreamExt, TryStreamExt};
 use internal_error::{ErrorIntoInternal, ResultIntoInternal};
 use kamu_core::utils::metadata_chain_comparator::*;
 use kamu_core::*;
-use kamu_datasets::{CreateDatasetUseCase, CreateDatasetUseCaseOptions};
+use kamu_datasets::{
+    AppendDatasetMetadataBatchUseCase,
+    AppendDatasetMetadataBatchUseCaseBlockAppendError,
+    AppendDatasetMetadataBatchUseCaseError,
+    AppendDatasetMetadataBatchUseCaseOptions,
+    CreateDatasetUseCase,
+    CreateDatasetUseCaseOptions,
+    SetRefCheckRefMode,
+};
 use odf::dataset::MetadataChainImpl;
 use odf::storage::inmem::{NamedObjectRepositoryInMemory, ObjectRepositoryInMemory};
 use odf::storage::{MetadataBlockRepositoryImpl, ReferenceRepositoryImpl};
@@ -139,7 +147,7 @@ impl SimpleTransferProtocol {
             }
         };
 
-        let mut blocks = match chains_comparison {
+        let mut blocks_desc_ordered = match chains_comparison {
             CompareChainsResult::Equal => unreachable!(),
             CompareChainsResult::LhsAhead {
                 lhs_ahead_blocks: src_ahead_blocks,
@@ -157,14 +165,16 @@ impl SimpleTransferProtocol {
         };
 
         let old_head = dst_head.clone();
-        let num_blocks = blocks.len();
+        let num_blocks = blocks_desc_ordered.len();
 
         // Create dataset if necessary using the source Seed block
         let (dst, dst_head) = if let Some(dst) = maybe_dst {
             (dst, dst_head)
         } else {
             use odf::metadata::AsTypedBlock;
-            let (first_hash, first_block) = blocks.pop().unwrap();
+
+            // Safety: there are blocks
+            let (first_hash, first_block) = blocks_desc_ordered.pop().unwrap();
             let seed_block = first_block
                 .into_typed()
                 .ok_or_else(|| CorruptedSourceError {
@@ -191,11 +201,10 @@ impl SimpleTransferProtocol {
         };
 
         self.synchronize_blocks(
-            blocks,
+            blocks_desc_ordered,
             src.as_ref(),
             dst.as_ref(),
-            &src_head,
-            dst_head.as_ref(),
+            dst_head,
             validation,
             trust_source_hashes,
             listener,
@@ -218,12 +227,12 @@ impl SimpleTransferProtocol {
     ) -> Result<odf::Multihash, SyncError> {
         match src_chain.resolve_ref(&odf::BlockRef::Head).await {
             Ok(head) => Ok(head),
-            Err(odf::storage::GetRefError::NotFound(_)) => Err(DatasetAnyRefUnresolvedError {
+            Err(odf::GetRefError::NotFound(_)) => Err(DatasetAnyRefUnresolvedError {
                 dataset_ref: src_ref.clone(),
             }
             .into()),
-            Err(odf::storage::GetRefError::Access(e)) => Err(SyncError::Access(e)),
-            Err(odf::storage::GetRefError::Internal(e)) => Err(SyncError::Internal(e)),
+            Err(odf::GetRefError::Access(e)) => Err(SyncError::Access(e)),
+            Err(odf::GetRefError::Internal(e)) => Err(SyncError::Internal(e)),
         }
     }
 
@@ -233,33 +242,35 @@ impl SimpleTransferProtocol {
     ) -> Result<Option<odf::Multihash>, SyncError> {
         match dst_chain.resolve_ref(&odf::BlockRef::Head).await {
             Ok(h) => Ok(Some(h)),
-            Err(odf::storage::GetRefError::NotFound(_)) => Ok(None),
-            Err(odf::storage::GetRefError::Access(e)) => Err(SyncError::Access(e)),
-            Err(odf::storage::GetRefError::Internal(e)) => Err(SyncError::Internal(e)),
+            Err(odf::GetRefError::NotFound(_)) => Ok(None),
+            Err(odf::GetRefError::Access(e)) => Err(SyncError::Access(e)),
+            Err(odf::GetRefError::Internal(e)) => Err(SyncError::Internal(e)),
         }
     }
 
-    fn map_block_iteration_error(e: odf::dataset::IterBlocksError) -> SyncError {
+    fn map_block_iteration_error(e: odf::IterBlocksError) -> SyncError {
+        const METADATA_CHAIN_BROKEN_MESSAGE: &str = "Source metadata chain is broken";
+
         match e {
-            odf::dataset::IterBlocksError::RefNotFound(e) => SyncError::Internal(e.int_err()),
-            odf::dataset::IterBlocksError::BlockNotFound(e) => CorruptedSourceError {
-                message: "Source metadata chain is broken".to_owned(),
+            odf::IterBlocksError::RefNotFound(e) => SyncError::Internal(e.int_err()),
+            odf::IterBlocksError::BlockNotFound(e) => CorruptedSourceError {
+                message: METADATA_CHAIN_BROKEN_MESSAGE.to_owned(),
                 source: Some(e.into()),
             }
             .into(),
-            odf::dataset::IterBlocksError::BlockVersion(e) => CorruptedSourceError {
-                message: "Source metadata chain is broken".to_owned(),
+            odf::IterBlocksError::BlockVersion(e) => CorruptedSourceError {
+                message: METADATA_CHAIN_BROKEN_MESSAGE.to_owned(),
                 source: Some(e.into()),
             }
             .into(),
-            odf::dataset::IterBlocksError::BlockMalformed(e) => CorruptedSourceError {
-                message: "Source metadata chain is broken".to_owned(),
+            odf::IterBlocksError::BlockMalformed(e) => CorruptedSourceError {
+                message: METADATA_CHAIN_BROKEN_MESSAGE.to_owned(),
                 source: Some(e.into()),
             }
             .into(),
-            odf::dataset::IterBlocksError::InvalidInterval(_) => unreachable!(),
-            odf::dataset::IterBlocksError::Access(e) => SyncError::Access(e),
-            odf::dataset::IterBlocksError::Internal(e) => SyncError::Internal(e),
+            odf::IterBlocksError::InvalidInterval(_) => unreachable!(),
+            odf::IterBlocksError::Access(e) => SyncError::Access(e),
+            e @ odf::IterBlocksError::Internal(_) => SyncError::Internal(e.int_err()),
         }
     }
 
@@ -408,11 +419,10 @@ impl SimpleTransferProtocol {
 
     async fn synchronize_blocks<'a>(
         &'a self,
-        blocks: Vec<odf::dataset::HashedMetadataBlock>,
+        blocks_desc_ordered: Vec<odf::dataset::HashedMetadataBlock>,
         src: &'a dyn odf::Dataset,
         dst: &'a dyn odf::Dataset,
-        src_head: &'a odf::Multihash,
-        dst_head: Option<&'a odf::Multihash>,
+        dst_head: Option<odf::Multihash>,
         validation: odf::dataset::AppendValidation,
         trust_source_hashes: bool,
         listener: Arc<dyn SyncListener>,
@@ -420,10 +430,13 @@ impl SimpleTransferProtocol {
         mut stats: SyncStats,
     ) -> Result<(), SyncError> {
         // Update stats estimates based on metadata
-        stats.dst_estimated.metadata_blocks_written += blocks.len() as u64;
+        stats.dst_estimated.metadata_blocks_written += blocks_desc_ordered.len() as u64;
 
         use odf::metadata::IntoDataStreamBlock;
-        for block in blocks.iter().filter_map(|(_, b)| b.as_data_stream_block()) {
+        for block in blocks_desc_ordered
+            .iter()
+            .filter_map(|(_, b)| b.as_data_stream_block())
+        {
             if let Some(data_slice) = block.event.new_data {
                 stats.src_estimated.data_slices_read += 1;
                 stats.src_estimated.bytes_read += data_slice.size;
@@ -442,13 +455,17 @@ impl SimpleTransferProtocol {
             }
         }
 
-        tracing::info!(?stats, "Considering {} new blocks", blocks.len());
+        tracing::info!(
+            ?stats,
+            "Considering {} new blocks",
+            blocks_desc_ordered.len()
+        );
         listener.on_status(SyncStage::TransferData, &stats);
 
         // Download data and checkpoints
-        let arc_stats = Arc::new(Mutex::new(stats.clone()));
+        let arc_stats = Arc::new(Mutex::new(stats));
         let mut block_download_tasks = vec![];
-        blocks.iter().rev().for_each(|(_, b)| {
+        blocks_desc_ordered.iter().rev().for_each(|(_, b)| {
             if let Some(block_stream) = b.as_data_stream_block() {
                 if let Some(data_slice) = block_stream.event.new_data {
                     // Each function return unique future
@@ -481,89 +498,87 @@ impl SimpleTransferProtocol {
             .try_for_each_concurrent(transfer_options.max_parallel_transfers, |future| future)
             .await?;
 
-        // Commit blocks
-        for (hash, block) in blocks.into_iter().rev() {
-            tracing::debug!(?hash, "Appending block");
-            let sequence_number = block.sequence_number;
+        let append_dataset_metadata_batch_use_case = self
+            .catalog
+            .get_one::<dyn AppendDatasetMetadataBatchUseCase>()
+            .unwrap();
+        let on_append_metadata_block_callback = {
+            let boxed_closure: Box<dyn Fn() + Send> = Box::new(move || {
+                let mut stats = arc_stats.lock().unwrap();
+                stats.dst.metadata_blocks_written += 1;
+                listener.on_status(SyncStage::CommitBlocks, &stats);
+            });
+            Some(boxed_closure)
+        };
 
-            match dst
-                .as_metadata_chain()
-                .append(
-                    block,
-                    odf::dataset::AppendOpts {
-                        validation,
-                        update_ref: None, // We will update head once, after sync is complete
-                        precomputed_hash: if !trust_source_hashes {
-                            None
-                        } else {
-                            Some(&hash)
-                        },
-                        expected_hash: Some(&hash),
-                        ..Default::default()
-                    },
-                )
-                .await
-            {
-                Ok(_) => Ok(()),
-                Err(odf::dataset::AppendError::InvalidBlock(append_validation_error)) => {
-                    let message = match append_validation_error {
-                        odf::dataset::AppendValidationError::HashMismatch(ref e) => format!(
-                            concat!(
-                                "Block hash declared by the source {} didn't match ",
-                                "the computed {} at block {} - this may be an indication ",
-                                "of hashing algorithm mismatch or an attempt to tamper data",
-                            ),
-                            e.actual, e.expected, sequence_number
-                        ),
-                        _ => format!(
-                            "Source metadata chain is logically inconsistent at block \
-                             {hash}[{sequence_number}]"
-                        ),
-                    };
-
-                    Err(CorruptedSourceError {
-                        message,
-                        source: Some(append_validation_error.into()),
-                    }
-                    .into())
-                }
-                Err(
-                    odf::dataset::AppendError::RefNotFound(_)
-                    | odf::dataset::AppendError::RefCASFailed(_),
-                ) => unreachable!(),
-                Err(odf::dataset::AppendError::Access(e)) => Err(SyncError::Access(e)),
-                Err(odf::dataset::AppendError::Internal(e)) => Err(SyncError::Internal(e)),
-            }?;
-
-            stats.dst.metadata_blocks_written += 1;
-            listener.on_status(SyncStage::CommitBlocks, &stats);
-        }
-
-        // Update reference, atomically committing the sync operation
-        // Any failures before this point may result in dangling files but will keep the
-        // destination dataset in its original logical state
-        match dst
-            .as_metadata_chain()
-            .set_ref(
-                &odf::BlockRef::Head,
-                src_head,
-                odf::dataset::SetRefOpts {
-                    validate_block_present: false,
-                    check_ref_is: Some(dst_head),
+        append_dataset_metadata_batch_use_case
+            .execute(
+                dst,
+                Box::new(blocks_desc_ordered.into_iter().rev()),
+                AppendDatasetMetadataBatchUseCaseOptions {
+                    set_ref_check_ref_mode: Some(SetRefCheckRefMode::Explicit(dst_head)),
+                    trust_source_hashes: Some(trust_source_hashes),
+                    append_validation: Some(validation),
+                    on_append_metadata_block_callback,
                 },
             )
             .await
-        {
-            Ok(()) => Ok(()),
-            Err(odf::dataset::SetChainRefError::CASFailed(e)) => {
-                Err(SyncError::UpdatedConcurrently(e.into()))
-            }
-            Err(odf::dataset::SetChainRefError::Access(e)) => Err(SyncError::Access(e)),
-            Err(odf::dataset::SetChainRefError::Internal(e)) => Err(SyncError::Internal(e)),
-            Err(odf::dataset::SetChainRefError::BlockNotFound(e)) => {
-                Err(SyncError::Internal(e.int_err()))
-            }
-        }?;
+            .map_err(|use_case_error| {
+                use odf::dataset::{AppendError, SetChainRefError};
+
+                match use_case_error {
+                    AppendDatasetMetadataBatchUseCaseError::BlockAppendError(
+                        AppendDatasetMetadataBatchUseCaseBlockAppendError {
+                            append_error,
+                            block_sequence_number,
+                            block_hash,
+                        },
+                    ) => match append_error {
+                        AppendError::InvalidBlock(append_validation_error) => {
+                            let message = match &append_validation_error {
+                                odf::dataset::AppendValidationError::HashMismatch(e) => {
+                                    format!(
+                                        "Block hash declared by the source {} didn't match the \
+                                         computed {} at block {} - this may be an indication of \
+                                         hashing algorithm mismatch or an attempt to tamper data",
+                                        e.actual, e.expected, block_sequence_number
+                                    )
+                                }
+                                _ => format!(
+                                    "Source metadata chain is logically inconsistent at block \
+                                     {block_hash}[{block_sequence_number}]"
+                                ),
+                            };
+
+                            CorruptedSourceError {
+                                message,
+                                source: Some(append_validation_error.into()),
+                            }
+                            .into()
+                        }
+                        AppendError::RefNotFound(_) | AppendError::RefCASFailed(_) => {
+                            unreachable!()
+                        }
+                        AppendError::Access(e) => SyncError::Access(e),
+                        e @ AppendError::Internal(_) => SyncError::Internal(e.int_err()),
+                    },
+                    AppendDatasetMetadataBatchUseCaseError::SetRefError(set_ref_error) => {
+                        match set_ref_error {
+                            SetChainRefError::CASFailed(e) => {
+                                SyncError::UpdatedConcurrently(e.into())
+                            }
+                            SetChainRefError::Access(e) => SyncError::Access(e),
+                            e @ (SetChainRefError::Internal(_)
+                            | SetChainRefError::BlockNotFound(_)) => {
+                                SyncError::Internal(e.int_err())
+                            }
+                        }
+                    }
+                    e @ AppendDatasetMetadataBatchUseCaseError::Internal(_) => {
+                        SyncError::Internal(e.int_err())
+                    }
+                }
+            })?;
 
         Ok(())
     }

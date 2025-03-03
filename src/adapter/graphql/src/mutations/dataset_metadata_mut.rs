@@ -22,6 +22,7 @@ pub struct DatasetMetadataMut {
     dataset_handle: odf::DatasetHandle,
 }
 
+#[common_macros::method_names_consts(const_value_prefix = "GQL: ")]
 #[Object]
 impl DatasetMetadataMut {
     #[graphql(skip)]
@@ -35,13 +36,14 @@ impl DatasetMetadataMut {
     }
 
     /// Updates or clears the dataset readme
+    #[tracing::instrument(level = "info", name = DatasetMetadataMut_update_readme, skip_all)]
     #[graphql(guard = "LoggedInGuard::new()")]
     async fn update_readme(
         &self,
         ctx: &Context<'_>,
         content: Option<String>,
     ) -> Result<UpdateReadmeResult> {
-        let resolved_dataset = get_dataset(ctx, &self.dataset_handle);
+        let resolved_dataset = get_dataset(ctx, &self.dataset_handle).await;
 
         let old_attachments = resolved_dataset
             .as_metadata_chain()
