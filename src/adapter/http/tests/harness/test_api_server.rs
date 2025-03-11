@@ -13,6 +13,7 @@ use std::net::SocketAddr;
 use dill::Catalog;
 use kamu_adapter_http::DatasetAuthorizationLayer;
 use kamu_core::TenancyConfig;
+use observability::axum::unknown_fallback_handler;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -65,6 +66,7 @@ impl TestAPIServer {
                     .layer(axum::extract::Extension(catalog))
                     .layer(kamu_adapter_http::AuthenticationLayer::new()),
             )
+            .fallback(unknown_fallback_handler)
             .split_for_parts();
 
         let local_addr = listener.local_addr().unwrap();

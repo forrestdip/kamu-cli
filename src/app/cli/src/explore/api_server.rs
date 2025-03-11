@@ -26,6 +26,7 @@ use kamu_adapter_http::{DatasetAuthorizationLayer, FileUploadLimitConfig};
 use kamu_flow_system_inmem::domain::FlowAgent;
 use kamu_task_system_inmem::domain::TaskAgent;
 use messaging_outbox::OutboxAgent;
+use observability::axum::unknown_fallback_handler;
 use tokio::sync::Notify;
 use url::Url;
 use utoipa_axum::router::OpenApiRouter;
@@ -199,7 +200,8 @@ impl APIServer {
                 "/system/metrics",
                 axum::routing::get(observability::metrics::metrics_handler),
             )
-            .merge(kamu_adapter_http::openapi::router().into());
+            .merge(kamu_adapter_http::openapi::router().into())
+            .fallback(unknown_fallback_handler);
 
         let maybe_shutdown_notify = if is_e2e_testing {
             let shutdown_notify = Arc::new(Notify::new());
