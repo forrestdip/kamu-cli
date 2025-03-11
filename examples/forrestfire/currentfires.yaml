@@ -1,0 +1,31 @@
+kind: DatasetSnapshot
+version: 1
+content:
+  name: bc.gov.current.fires
+  kind: Root
+  metadata:
+    - kind: SetPollingSource
+      fetch:
+        kind: Url
+        url: https://pub.data.gov.bc.ca/datasets/cdfc2d7b-c046-4bf0-90ac-4897232619e1/prot_current_fire_polys.zip
+      read:
+        kind: EsriShapefile
+        subPath: "prot_current_fire_polys.shp"
+      preprocess:
+        kind: Sql
+        engine: datafusion
+        query: |
+          select 
+            cast(OBJECTID as int) as objectid,
+            cast(FIRE_SZ_HA as double) as fire_sz_ha,
+            TRACK_DATE as start_date,
+            LOAD_DATE as load_date,
+            FIRE_STAT as fire_stat,
+            FIRE_LINK as fire_link,
+            
+            geometry
+          from input
+      merge:
+        kind: Ledger
+        primaryKey:
+          - objectid
